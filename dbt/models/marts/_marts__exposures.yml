@@ -1,0 +1,30 @@
+version: 2
+
+exposures:
+  - name: site_editorial_idf
+    type: application
+    description: >
+      Site éditorial "France Aujourd'hui" — articles et cartes sur
+      l'accessibilité immobilière en Île-de-France.
+      Consomme les marts pour produire des classements, cartes choroplèthes
+      et analyses temporelles.
+    depends_on:
+      - ref('mart_immo__accessibilite_commune')
+      - ref('mart_immo__ranking_tension')
+      - ref('mart_immo__synthese_zone')
+      - ref('mart_immo__evolution_prix')
+    owner:
+      name: France Aujourd'hui
+      email: contact@france-aujourdhui.fr
+
+  - name: dashboard_tension_idf
+    type: dashboard
+    description: >
+      Dashboard de suivi de la tension immobilière IDF.
+      Vue principale : carte + top 20 communes les plus tendues.
+    depends_on:
+      - ref('mart_immo__ranking_tension')
+      - ref('mart_immo__synthese_zone')
+    owner:
+      name: France Aujourd'hui
+      email: contact@france-aujourdhui.fr

@@ -1,0 +1,68 @@
+version: 2
+
+models:
+  - name: stg_insee__cog_communes
+    description: >
+      Référentiel COG 2024 des communes. Enrichi avec la zone IDF
+      (Paris, petite couronne, grande couronne) et un flag is_idf.
+    columns:
+      - name: code_commune
+        description: Code INSEE de la commune
+        tests:
+          - not_null
+          - unique
+      - name: nom_commune
+        description: Libellé officiel de la commune
+      - name: code_departement
+        description: Code département
+      - name: code_region
+        description: Code région (11 = Île-de-France)
+      - name: zone_idf
+        description: "Paris / Petite couronne / Grande couronne / null"
+      - name: is_idf
+        description: "true si la commune est en Île-de-France"
+
+  - name: stg_insee__filosofi_communes
+    description: >
+      Filosofi 2021 — indicateurs de revenus et niveau de vie par commune.
+      Limites : données fiscales/sociales, secret statistique sur petites communes.
+    columns:
+      - name: code_commune
+        description: Code INSEE de la commune
+        tests:
+          - not_null
+      - name: niveau_vie_median
+        description: Médiane du niveau de vie annuel (euros par UC)
+      - name: taux_pauvrete_60
+        description: Taux de pauvreté au seuil de 60% du niveau de vie médian national
+      - name: indice_gini
+        description: Indice de Gini (0 = égalité parfaite, 1 = inégalité totale)
+      - name: nb_menages_fiscaux
+        description: Nombre de ménages fiscaux
+
+  - name: stg_insee__population_communes
+    description: >
+      Population légale communale (recensement 2021).
+      Grain : commune.
+    columns:
+      - name: code_commune
+        description: Code INSEE de la commune
+        tests:
+          - not_null
+      - name: population_2021
+        description: Population municipale 2021
+
+  - name: stg_insee__population_age
+    description: >
+      Population par sexe et âge détaillé, par commune (RP 2021).
+      Enrichi avec tranche quinquennale calculée.
+      Grain : commune × sexe × âge.
+    columns:
+      - name: code_commune
+        description: Code INSEE de la commune
+        tests:
+          - not_null
+      - name: tranche_age_quinquennale
+        description: "Tranche d'âge quinquennale (ex : 25-29, 30-34)"
+      - name: effectif
+        description: Effectif dans cette tranche

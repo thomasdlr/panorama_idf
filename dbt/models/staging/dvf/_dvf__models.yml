@@ -1,0 +1,49 @@
+version: 2
+
+models:
+  - name: stg_dvf__stats_communales
+    description: >
+      Statistiques DVF agrégées, nettoyées. Ventes uniquement.
+      Grain : commune × année × type de bien.
+    columns:
+      - name: code_commune
+        description: Code INSEE de la commune
+        tests:
+          - not_null
+      - name: annee
+        description: Année de la mutation
+        tests:
+          - not_null
+      - name: nature_mutation
+        description: "Toujours 'Vente' (filtré en staging)"
+      - name: type_local
+        description: "Type de bien : Appartement, Maison, etc."
+      - name: prix_m2_median
+        description: Prix médian au m² (euros)
+      - name: prix_m2_moyen
+        description: Prix moyen au m² (euros)
+      - name: nb_mutations
+        description: Nombre de mutations sur la période
+      - name: prix_median
+        description: Prix médian de la transaction (euros)
+
+  - name: stg_dvf__mutations_idf
+    description: >
+      Mutations DVF+ individuelles pour l'Île-de-France, nettoyées.
+      Source Cerema. Ne contient PAS l'âge de l'acquéreur.
+      Grain : mutation.
+    columns:
+      - name: id_mutation
+        description: Identifiant unique de la mutation
+      - name: date_mutation
+        description: Date de la mutation
+      - name: code_commune
+        description: Code INSEE de la commune
+        tests:
+          - not_null
+      - name: type_local
+        description: "Type de bien : Appartement, Maison, Local industriel/commercial, Dépendance"
+      - name: valeur_fonciere
+        description: Montant de la transaction (euros)
+      - name: surface_bati
+        description: Surface réelle du bâti (m²)

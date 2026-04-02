@@ -1,0 +1,33 @@
+version: 2
+
+sources:
+  - name: insee
+    description: >
+      Données INSEE : revenus (Filosofi), population (recensement), géographie (COG).
+    schema: main
+    tables:
+      - name: raw_filosofi_communes
+        description: >
+          Filosofi 2021 — indicateurs de structure et distribution des revenus
+          par commune. Contient revenus déclarés, disponibles, niveau de vie,
+          taux de pauvreté, indices de Gini.
+          Limites : données fiscales et sociales, pas d'observation directe
+          des revenus réels de tous les ménages. Secret statistique appliqué
+          aux petites communes.
+
+      - name: raw_population_communes
+        description: >
+          Population légale des communes, historique depuis 1876.
+          On utilise principalement la colonne 2021.
+
+      - name: raw_population_age
+        description: >
+          Population par sexe et âge quinquennal au niveau communal (RP 2021).
+          Permet de calculer la structure d'âge locale.
+
+      - name: raw_cog_communes
+        description: >
+          Code Officiel Géographique 2024 — référentiel des communes.
+          Contient le code commune, libellé, département, région.
+          Utilisé comme table de référence pour les jointures géographiques
+          et le filtrage Île-de-France.

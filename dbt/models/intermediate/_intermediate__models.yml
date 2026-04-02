@@ -1,0 +1,67 @@
+version: 2
+
+models:
+  - name: int_geo__communes_idf
+    description: >
+      Référentiel des communes d'Île-de-France (filtre sur région 11).
+      Base de jointure pour les autres modèles intermediate et marts.
+    columns:
+      - name: code_commune
+        description: Code INSEE
+        tests:
+          - not_null
+          - unique
+      - name: zone_idf
+        description: "Paris / Petite couronne / Grande couronne"
+        tests:
+          - not_null
+          - accepted_values:
+              arguments:
+                values: ['Paris', 'Petite couronne', 'Grande couronne']
+
+  - name: int_immo__prix_commune_annee
+    description: >
+      Prix immobiliers agrégés par commune IDF et année.
+      Calculé à partir des mutations DVF+ individuelles.
+      Filtré sur appartements et maisons, prix et surfaces cohérents.
+    columns:
+      - name: code_commune
+        tests:
+          - not_null
+          - relationships:
+              arguments:
+                to: ref('int_geo__communes_idf')
+                field: code_commune
+      - name: annee
+        tests:
+          - not_null
+      - name: nb_ventes
+        description: Nombre total de ventes résidentielles
+      - name: prix_m2_median
+        description: Prix médian au m² (tous biens résidentiels confondus)
+
+  - name: int_demo__structure_age_commune
+    description: >
+      Structure d'âge de la population par commune IDF (RP 2021).
+      Parts des 25-39 ans et autres tranches.
+      ATTENTION : ne mesure pas l'âge des acheteurs mais la composition
+      de la population résidente.
+    columns:
+      - name: code_commune
+        tests:
+          - not_null
+          - unique
+      - name: part_25_39
+        description: "Part des 25-39 ans dans la population totale (ratio 0-1)"
+
+  - name: int_revenus__commune
+    description: >
+      Revenus et niveau de vie par commune IDF.
+      Croisement Filosofi + population.
+    columns:
+      - name: code_commune
+        tests:
+          - not_null
+          - unique
+      - name: niveau_vie_median
+        description: Médiane du niveau de vie annuel (euros par UC)

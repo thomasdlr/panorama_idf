@@ -1,0 +1,81 @@
+version: 2
+
+models:
+  - name: mart_immo__accessibilite_commune
+    description: >
+      Table analytique principale : accessibilité immobilière par commune IDF × année.
+      Croise prix (DVF+), revenus (Filosofi 2021) et structure d'âge (RP 2021).
+
+      KPI principaux :
+      - ratio_prix_m2_revenu_mensuel : mois de niveau de vie pour 1 m²
+      - ratio_achat_revenu_annuel : années de niveau de vie pour un achat médian
+      - ratio_achat_revenu_q1 : idem pour les ménages du 1er quartile
+
+      Limites :
+      - Filosofi et RP sont fixes (2021), seuls les prix varient par année.
+      - Communes avec < 5 ventes exclues (bruit statistique).
+      - Ne mesure PAS la capacité d'achat réelle des ménages.
+    columns:
+      - name: code_commune
+        tests:
+          - not_null
+      - name: annee
+        tests:
+          - not_null
+      - name: ratio_achat_revenu_annuel
+        description: >
+          Nombre d'années de niveau de vie médian nécessaires pour couvrir
+          le prix médian d'une transaction. Proxy de l'effort d'achat.
+      - name: ratio_prix_m2_revenu_mensuel
+        description: >
+          Nombre de mois de niveau de vie médian pour acheter 1 m².
+
+  - name: mart_immo__ranking_tension
+    description: >
+      Classement des communes IDF par indice de tension d'accès immobilier.
+      Indice composite (0-100) basé sur :
+      - ratio achat/revenu (40%)
+      - ratio m²/revenu (30%)
+      - faible présence 25-39 ans (15%)
+      - taux de pauvreté (15%)
+
+      Outil de classement relatif, pas de mesure absolue.
+      Ne dit rien sur les acheteurs réels.
+    columns:
+      - name: code_commune
+        tests:
+          - not_null
+      - name: annee
+        tests:
+          - not_null
+      - name: indice_tension
+        description: "Score 0-100. Plus élevé = commune plus tendue."
+      - name: rang_tension
+        description: "Rang parmi les communes IDF pour l'année donnée."
+
+  - name: mart_immo__synthese_zone
+    description: >
+      Synthèse agrégée par zone IDF (Paris, petite/grande couronne) × année.
+      Moyennes pondérées par population ou nombre de ventes.
+    columns:
+      - name: zone_idf
+        tests:
+          - not_null
+          - accepted_values:
+              arguments:
+                values: ['Paris', 'Petite couronne', 'Grande couronne']
+      - name: annee
+        tests:
+          - not_null
+
+  - name: mart_immo__evolution_prix
+    description: >
+      Évolution annuelle des prix par commune IDF.
+      Variations en % par rapport à l'année précédente.
+    columns:
+      - name: code_commune
+        tests:
+          - not_null
+      - name: annee
+        tests:
+          - not_null

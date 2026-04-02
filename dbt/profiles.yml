@@ -1,0 +1,7 @@
+france_aujourdhui:
+  target: dev
+  outputs:
+    dev:
+      type: duckdb
+      path: "../data/france_aujourdhui.duckdb"
+      threads: 4

@@ -1,0 +1,23 @@
+version: 2
+
+sources:
+  - name: dvf
+    description: >
+      Données de valeurs foncières (DVF et DVF+).
+      DVF+ est la version enrichie par le Cerema avec géolocalisation.
+      Les statistiques DVF sont des agrégats prêts à l'emploi publiés sur data.gouv.fr.
+    schema: main
+    tables:
+      - name: raw_stats_dvf
+        description: >
+          Statistiques DVF agrégées par commune et année.
+          Contient prix médians, moyens, volumes de ventes par type de bien.
+        columns:
+          - name: code_commune
+            description: Code INSEE de la commune
+
+      - name: raw_dvf_plus
+        description: >
+          Mutations immobilières DVF+ (Cerema) pour les 8 départements IDF.
+          Données au niveau de la mutation individuelle, géolocalisées.
+          ATTENTION : ne contient PAS l'âge de l'acquéreur.
