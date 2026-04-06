@@ -1,30 +1,35 @@
 version: 2
 
 exposures:
-  - name: site_editorial_idf
-    type: application
+  - name: metabase_dashboard_immobilier_idf
+    type: dashboard
+    maturity: medium
+    url: http://localhost:3000/dashboard/5
     description: >
-      Site éditorial "France Aujourd'hui" — articles et cartes sur
-      l'accessibilité immobilière en Île-de-France.
-      Consomme les marts pour produire des classements, cartes choroplèthes
-      et analyses temporelles.
+      Dashboard Metabase « Immobilier Ile-de-France ».
+      3 onglets (IDF, Paris, Petite couronne) avec cartes choroplethe,
+      evolutions de prix, volumes de ventes et demographie.
+      Alimente par export PostgreSQL des marts.
     depends_on:
       - ref('mart_immo__accessibilite_commune')
       - ref('mart_immo__ranking_tension')
       - ref('mart_immo__synthese_zone')
       - ref('mart_immo__evolution_prix')
     owner:
-      name: France Aujourd'hui
+      name: Thomas Delard
       email: contact@france-aujourdhui.fr
 
-  - name: dashboard_tension_idf
-    type: dashboard
+  - name: site_editorial_idf
+    type: application
+    maturity: low
     description: >
-      Dashboard de suivi de la tension immobilière IDF.
-      Vue principale : carte + top 20 communes les plus tendues.
+      Site editorial « France Aujourd'hui » — articles, cartes et classements
+      sur l'accessibilite immobiliere en Ile-de-France.
     depends_on:
+      - ref('mart_immo__accessibilite_commune')
       - ref('mart_immo__ranking_tension')
       - ref('mart_immo__synthese_zone')
+      - ref('mart_immo__evolution_prix')
     owner:
-      name: France Aujourd'hui
+      name: Thomas Delard
       email: contact@france-aujourdhui.fr

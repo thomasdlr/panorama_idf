@@ -3,79 +3,146 @@ version: 2
 models:
   - name: mart_immo__accessibilite_commune
     description: >
-      Table analytique principale : accessibilité immobilière par commune IDF × année.
-      Croise prix (DVF+), revenus (Filosofi 2021) et structure d'âge (RP 2021).
+      Table analytique principale : accessibilite immobiliere par commune IDF x annee.
+      Croise prix (DVF), revenus (Filosofi 2021) et structure d'age (RP 2021).
 
       KPI principaux :
-      - ratio_prix_m2_revenu_mensuel : mois de niveau de vie pour 1 m²
-      - ratio_achat_revenu_annuel : années de niveau de vie pour un achat médian
-      - ratio_achat_revenu_q1 : idem pour les ménages du 1er quartile
+      - ratio_prix_m2_revenu_mensuel : mois de niveau de vie pour 1 m2
+      - ratio_achat_revenu_annuel : annees de niveau de vie pour un achat median
+      - ratio_achat_revenu_q1 : idem pour les menages du 1er quartile
 
       Limites :
-      - Filosofi et RP sont fixes (2021), seuls les prix varient par année.
+      - Filosofi et RP sont fixes (2021), seuls les prix varient par annee.
       - Communes avec < 5 ventes exclues (bruit statistique).
-      - Ne mesure PAS la capacité d'achat réelle des ménages.
+      - Ne mesure PAS la capacite d'achat reelle des menages.
     columns:
       - name: code_commune
-        tests:
-          - not_null
+        description: Code INSEE (5 car.) — arrondissements pour Paris
+        tests: [not_null]
+      - name: nom_commune
+        description: Libelle officiel de la commune
+      - name: code_departement
+        description: Code departement (2 car.)
+      - name: zone_idf
+        description: "Paris / Petite couronne / Grande couronne"
       - name: annee
-        tests:
-          - not_null
-      - name: ratio_achat_revenu_annuel
-        description: >
-          Nombre d'années de niveau de vie médian nécessaires pour couvrir
-          le prix médian d'une transaction. Proxy de l'effort d'achat.
+        description: Annee de la transaction (2020-2025)
+        tests: [not_null]
+      - name: population_2021
+        description: Population municipale (recensement 2021)
+      - name: pop_25_39
+        description: Effectif 25-39 ans (RP 2021)
+      - name: part_25_39
+        description: "Part des 25-39 ans (ratio 0-1)"
+      - name: part_60_plus
+        description: "Part des 60+ (ratio 0-1)"
+      - name: niveau_vie_median
+        description: Mediane du niveau de vie annuel en euros par UC (Filosofi 2021)
+      - name: niveau_vie_q1
+        description: 1er quartile du niveau de vie (Filosofi 2021)
+      - name: nb_ventes
+        description: Nombre de ventes residentielles (appart + maisons)
+      - name: nb_ventes_appartements
+        description: Nombre de ventes d'appartements
+      - name: nb_ventes_maisons
+        description: Nombre de ventes de maisons
+      - name: prix_median
+        description: Prix median de la transaction (EUR)
+      - name: prix_m2_median
+        description: Prix median au m2 (EUR)
+      - name: surface_mediane
+        description: Surface mediane du bien (m2)
       - name: ratio_prix_m2_revenu_mensuel
         description: >
-          Nombre de mois de niveau de vie médian pour acheter 1 m².
+          Mois de niveau de vie median pour 1 m2.
+          Formule : prix_m2_median / (niveau_vie_median / 12).
+      - name: ratio_achat_revenu_annuel
+        description: >
+          Annees de niveau de vie median pour un achat median.
+          Formule : prix_median / niveau_vie_median.
+      - name: ratio_achat_revenu_q1
+        description: >
+          Annees de revenu Q1 pour un achat median.
+          Mesure l'accessibilite pour les menages les plus modestes.
 
   - name: mart_immo__ranking_tension
     description: >
-      Classement des communes IDF par indice de tension d'accès immobilier.
-      Indice composite (0-100) basé sur :
+      Classement des communes IDF par indice de tension d'acces immobilier.
+      Indice composite (0-100) base sur :
       - ratio achat/revenu (40%)
-      - ratio m²/revenu (30%)
-      - faible présence 25-39 ans (15%)
-      - taux de pauvreté (15%)
+      - ratio m2/revenu (30%)
+      - faible presence 25-39 ans (15%)
+      - taux de pauvrete (15%)
 
       Outil de classement relatif, pas de mesure absolue.
-      Ne dit rien sur les acheteurs réels.
     columns:
       - name: code_commune
-        tests:
-          - not_null
+        tests: [not_null]
       - name: annee
-        tests:
-          - not_null
+        tests: [not_null]
       - name: indice_tension
-        description: "Score 0-100. Plus élevé = commune plus tendue."
+        description: "Score 0-100. Plus eleve = commune plus tendue."
       - name: rang_tension
-        description: "Rang parmi les communes IDF pour l'année donnée."
+        description: "Rang parmi les communes IDF pour l'annee donnee (1 = plus tendue)."
+      - name: prix_m2_median
+        description: Prix median au m2 (EUR)
+      - name: niveau_vie_median
+        description: Mediane du niveau de vie annuel (EUR/UC)
+      - name: part_25_39
+        description: Part des 25-39 ans (ratio 0-1)
+      - name: taux_pauvrete_60
+        description: Proxy taux de pauvrete (part des menages non imposes)
 
   - name: mart_immo__synthese_zone
     description: >
-      Synthèse agrégée par zone IDF (Paris, petite/grande couronne) × année.
-      Moyennes pondérées par population ou nombre de ventes.
+      Synthese agregee par zone IDF (Paris, petite/grande couronne) x annee.
+      Moyennes ponderees : prix par nb de ventes, revenus par population.
     columns:
       - name: zone_idf
+        description: "Paris / Petite couronne / Grande couronne"
         tests:
           - not_null
           - accepted_values:
               arguments:
                 values: ['Paris', 'Petite couronne', 'Grande couronne']
       - name: annee
-        tests:
-          - not_null
+        tests: [not_null]
+      - name: nb_communes
+        description: Nombre de communes avec >= 5 ventes
+      - name: nb_ventes_total
+        description: Volume total de transactions
+      - name: prix_m2_median_pondere
+        description: Prix median m2 pondere par nb de ventes (EUR)
+      - name: niveau_vie_median_pondere
+        description: Niveau de vie median pondere par population (EUR)
+      - name: ratio_achat_revenu_pondere
+        description: Ratio achat/revenu pondere par nb de ventes
+      - name: part_25_39_ponderee
+        description: Part 25-39 ans ponderee par population (ratio 0-1)
 
   - name: mart_immo__evolution_prix
     description: >
-      Évolution annuelle des prix par commune IDF.
-      Variations en % par rapport à l'année précédente.
+      Evolution annuelle des prix par commune IDF.
+      Variations en % par rapport a l'annee precedente.
+      Communes avec < 5 ventes exclues.
     columns:
       - name: code_commune
-        tests:
-          - not_null
+        tests: [not_null]
+      - name: nom_commune
+        description: Libelle officiel
+      - name: code_departement
+        description: Code departement
+      - name: zone_idf
+        description: "Paris / Petite couronne / Grande couronne"
       - name: annee
-        tests:
-          - not_null
+        tests: [not_null]
+      - name: nb_ventes
+        description: Nombre de ventes residentielles
+      - name: prix_m2_median
+        description: Prix median au m2 (EUR)
+      - name: prix_median
+        description: Prix median de la transaction (EUR)
+      - name: variation_prix_m2_pct
+        description: Variation du prix m2 vs annee precedente (%)
+      - name: variation_prix_median_pct
+        description: Variation du prix median vs annee precedente (%)

@@ -34,15 +34,19 @@ class DatasetConfig:
 # ---------------------------------------------------------------------------
 # DVF+ (Cerema) — transactions immobilières géolocalisées
 # On utilise les fichiers départementaux IDF pour limiter le volume.
-# URL pattern: https://data.cquest.org/dvf_opendata/contrib/cerema-dvf+/
+# URL pattern: https://files.data.gouv.fr/geo-dvf/latest/csv/<année>/departements/
+# On télécharge chaque année séparément pour avoir l'historique complet.
 # ---------------------------------------------------------------------------
+DVF_ANNEES = ["2020", "2021", "2022", "2023", "2024", "2025"]
+
 DVF_PLUS_DATASETS = [
     DatasetConfig(
-        name=f"dvf_plus_{dep}",
-        url=f"https://data.cquest.org/dvf_opendata/contrib/cerema-dvf+/{dep}.csv.gz",
-        filename=f"dvf_plus_{dep}.csv.gz",
-        description=f"DVF+ transactions immobilières département {dep}",
+        name=f"dvf_plus_{dep}_{annee}",
+        url=f"https://files.data.gouv.fr/geo-dvf/latest/csv/{annee}/departements/{dep}.csv.gz",
+        filename=f"dvf_plus_{dep}_{annee}.csv.gz",
+        description=f"DVF géolocalisé département {dep} année {annee}",
     )
+    for annee in DVF_ANNEES
     for dep in IDF_DEPARTEMENTS
 ]
 
@@ -51,7 +55,7 @@ DVF_PLUS_DATASETS = [
 # ---------------------------------------------------------------------------
 STATS_DVF = DatasetConfig(
     name="stats_dvf",
-    url="https://www.data.gouv.fr/fr/datasets/r/c3bef261-5d59-4248-990f-e7a0e40c7738",
+    url="https://www.data.gouv.fr/api/1/datasets/r/851d342f-9c96-41c1-924a-11a7a7aae8a6",
     filename="stats_dvf.csv",
     description="Statistiques DVF agrégées : prix médians, volumes, par commune et année",
 )
@@ -62,7 +66,7 @@ STATS_DVF = DatasetConfig(
 # ---------------------------------------------------------------------------
 FILOSOFI_COMMUNES = DatasetConfig(
     name="filosofi_communes",
-    url="https://www.insee.fr/fr/statistiques/fichier/8229323/indic-struct-distrib-revenu-2021-COMMUNES.zip",
+    url="https://www.insee.fr/fr/statistiques/fichier/7756855/indic-struct-distrib-revenu-2021-COMMUNES_csv.zip",
     filename="filosofi_communes_2021.zip",
     description="Filosofi 2021 — indicateurs de revenus par commune",
     extract=["FILO2021_DEC_COM.csv"],
@@ -73,7 +77,7 @@ FILOSOFI_COMMUNES = DatasetConfig(
 # ---------------------------------------------------------------------------
 FILOSOFI_IRIS = DatasetConfig(
     name="filosofi_iris",
-    url="https://www.insee.fr/fr/statistiques/fichier/8229323/indic-struct-distrib-revenu-2021-IRIS.zip",
+    url="https://www.insee.fr/fr/statistiques/fichier/7756855/indic-struct-distrib-revenu-2021-IRIS_csv.zip",
     filename="filosofi_iris_2021.zip",
     description="Filosofi 2021 — indicateurs de revenus par IRIS (V2)",
     extract=["FILO2021_DEC_IRIS.csv"],
@@ -84,10 +88,9 @@ FILOSOFI_IRIS = DatasetConfig(
 # ---------------------------------------------------------------------------
 POPULATION_COMMUNES = DatasetConfig(
     name="population_communes",
-    url="https://www.insee.fr/fr/statistiques/fichier/8202264/base-pop-historiques-1876-2021.zip",
-    filename="population_communes_2021.zip",
-    description="Population communale historique (recensement 2021)",
-    extract=["base-pop-historiques-1876-2021.xlsx"],
+    url="https://www.insee.fr/fr/statistiques/fichier/3698339/base-pop-historiques-1876-2023.xlsx",
+    filename="base-pop-historiques-1876-2023.xlsx",
+    description="Population communale historique (recensement 2023)",
 )
 
 # ---------------------------------------------------------------------------
@@ -96,10 +99,10 @@ POPULATION_COMMUNES = DatasetConfig(
 # ---------------------------------------------------------------------------
 POPULATION_AGE = DatasetConfig(
     name="population_age",
-    url="https://www.insee.fr/fr/statistiques/fichier/1893204/BTT_TD_POP1B_2021.zip",
+    url="https://www.insee.fr/fr/statistiques/fichier/8202264/TD_POP1B_2021_csv.zip",
     filename="population_age_2021.zip",
     description="Population par sexe et âge quinquennal, par commune (RP 2021)",
-    extract=["BTT_TD_POP1B_2021.csv"],
+    extract=["TD_POP1B_2021.csv"],
 )
 
 # ---------------------------------------------------------------------------

@@ -1,26 +1,38 @@
 /*
     stg_dvf__mutations_idf
     ----------------------
-    Nettoyage des mutations DVF+ pour l'Île-de-France.
-    Source : Cerema DVF+
+    Nettoyage des mutations DVF geolocalisees pour l'Ile-de-France.
+    Source : geo-dvf (data.gouv.fr)
 
     Grain : mutation individuelle
+    Materialisation : incremental par annee de mutation.
 
     Notes :
-    - DVF+ ne contient PAS l'âge de l'acquéreur.
-    - Les colonnes exactes dépendent du millésime DVF+ ; on caste de façon
-      défensive avec nullif.
+    - DVF ne contient PAS l'age de l'acquereur.
+    - On caste de facon defensive avec nullif pour gerer les champs vides.
 */
+
+{{
+    config(
+        materialized='incremental',
+        unique_key='id_mutation',
+        on_schema_change='append_new_columns'
+    )
+}}
 
 with source as (
     select * from {{ source('dvf', 'raw_dvf_plus') }}
+
+    {% if is_incremental() %}
+    where cast(date_mutation as date) > (select max(date_mutation) from {{ this }})
+    {% endif %}
 ),
 
 cleaned as (
     select
         -- Identifiant mutation
         trim(id_mutation) as id_mutation,
-        trim(id_disposition) as id_disposition,
+        trim(numero_disposition) as numero_disposition,
 
         -- Date et nature
         cast(date_mutation as date) as date_mutation,
@@ -42,14 +54,14 @@ cleaned as (
         -- Prix
         cast(nullif(trim(valeur_fonciere), '') as double) as valeur_fonciere,
 
-        -- Géolocalisation
+        -- Geolocalisation
         cast(nullif(trim(latitude), '') as double) as latitude,
         cast(nullif(trim(longitude), '') as double) as longitude
 
     from source
     where
         trim(nature_mutation) = 'Vente'
-        and code_commune is not null
+        and nullif(trim(code_commune), '') is not null
 )
 
 select * from cleaned

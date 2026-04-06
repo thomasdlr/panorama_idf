@@ -51,6 +51,14 @@ export:
     [con.execute(f\"COPY (SELECT * FROM {t}) TO 'data/processed/{t.split('.')[-1]}.csv' (HEADER, DELIMITER ',')\") or print(f'Exported {t.split(\".\")[-1]}.csv') for t in tables]; \
     con.close()"
 
+# Lancer Metabase (Docker) et configurer le dashboard
+metabase-up:
+    uv run python scripts/setup_metabase.py
+
+# Arrêter Metabase
+metabase-down:
+    docker compose down
+
 # Nettoyage des artefacts dbt et du warehouse
 clean:
     cd dbt && uv run dbt clean

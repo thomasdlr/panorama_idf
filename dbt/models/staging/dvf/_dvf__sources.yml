@@ -7,17 +7,23 @@ sources:
       DVF+ est la version enrichie par le Cerema avec géolocalisation.
       Les statistiques DVF sont des agrégats prêts à l'emploi publiés sur data.gouv.fr.
     schema: main
+    freshness:
+      warn_after: {count: 90, period: day}
+      error_after: {count: 180, period: day}
+    loaded_at_field: "current_date"
     tables:
       - name: raw_stats_dvf
         description: >
-          Statistiques DVF agrégées par commune et année.
-          Contient prix médians, moyens, volumes de ventes par type de bien.
+          Statistiques DVF agrégées par entité géographique (commune, EPCI, département).
+          Contient prix médians, moyens, volumes de ventes par type de bien
+          (appartement, maison, local). Pas de dimension année.
         columns:
-          - name: code_commune
-            description: Code INSEE de la commune
+          - name: code_geo
+            description: Code INSEE de l'entité géographique
 
       - name: raw_dvf_plus
         description: >
-          Mutations immobilières DVF+ (Cerema) pour les 8 départements IDF.
+          Mutations immobilières geo-dvf pour les 8 départements IDF (2020-2025).
           Données au niveau de la mutation individuelle, géolocalisées.
           ATTENTION : ne contient PAS l'âge de l'acquéreur.
+        loaded_at_field: "cast(date_mutation as date)"

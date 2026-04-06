@@ -17,6 +17,12 @@ clean-targets:
   - target
   - dbt_packages
 
+seeds:
+  france_aujourdhui:
+    zones_idf:
+      +column_types:
+        code_departement: varchar
+
 models:
   france_aujourdhui:
     staging:

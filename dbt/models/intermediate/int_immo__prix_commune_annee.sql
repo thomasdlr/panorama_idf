@@ -3,14 +3,17 @@
     ----------------------------
     Agrégation des prix immobiliers par commune IDF et année.
 
-    Stratégie : on utilise prioritairement les mutations DVF+ pour calculer
-    des médianes et moyennes au niveau commune, car elles offrent plus de
-    contrôle que les stats DVF pré-agrégées.
+    Stratégie : on utilise les mutations DVF géolocalisées pour calculer
+    des médianes et moyennes au niveau commune.
 
     Grain : commune IDF × année
 
     On filtre sur les appartements et maisons (biens résidentiels).
     On exclut les transactions à prix aberrant (< 1000€ ou > 50M€).
+
+    IMPORTANT : DVF contient plusieurs lignes par mutation (une par lot/parcelle),
+    partageant le même id_mutation et la même valeur_fonciere. On déduplique
+    par id_mutation pour éviter de compter plusieurs fois la même transaction.
 */
 
 with communes_idf as (
@@ -18,8 +21,11 @@ with communes_idf as (
     from {{ ref('int_geo__communes_idf') }}
 ),
 
-mutations as (
-    select
+-- Déduplique par mutation : une seule ligne par id_mutation,
+-- en gardant le type_local et la surface du lot principal (plus grande surface).
+mutations_dedup as (
+    select distinct on (m.id_mutation)
+        m.id_mutation,
         m.code_commune,
         m.annee,
         m.type_local,
@@ -34,6 +40,7 @@ mutations as (
         and m.valeur_fonciere < 50000000
         and m.surface_bati > 5
         and m.surface_bati < 5000
+    order by m.id_mutation, m.surface_bati desc
 ),
 
 aggregated as (
@@ -58,8 +65,8 @@ aggregated as (
         median(surface_bati) as surface_mediane,
         avg(surface_bati) as surface_moyenne
 
-    from mutations
-    where annee >= 2018  -- On garde 5 ans de données
+    from mutations_dedup
+    where annee >= 2018
     group by code_commune, annee
 )
 

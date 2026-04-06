@@ -29,20 +29,18 @@ cleaned as (
         trim("TYPECOM") in ('COM', 'ARM')
 ),
 
+zones as (
+    select * from {{ ref('zones_idf') }}
+),
+
 with_zone as (
     select
-        *,
-        -- Classification territoriale IDF
-        case
-            when code_departement = '75' then 'Paris'
-            when code_departement in ('92', '93', '94') then 'Petite couronne'
-            when code_departement in ('77', '78', '91', '95') then 'Grande couronne'
-        end as zone_idf,
+        c.*,
+        z.zone_idf,
+        c.code_region = '11' as is_idf
 
-        -- Flag IDF
-        code_region = '11' as is_idf
-
-    from cleaned
+    from cleaned c
+    left join zones z on c.code_departement = z.code_departement
 )
 
 select * from with_zone

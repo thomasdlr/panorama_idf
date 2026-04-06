@@ -26,6 +26,9 @@ dbt/target/
 dbt/dbt_packages/
 dbt/logs/
 
+# Metabase
+metabase/
+
 # IDE
 .idea/
 .vscode/

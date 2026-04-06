@@ -5,6 +5,10 @@ sources:
     description: >
       Données INSEE : revenus (Filosofi), population (recensement), géographie (COG).
     schema: main
+    freshness:
+      warn_after: {count: 365, period: day}
+      error_after: {count: 730, period: day}
+    loaded_at_field: "current_date"
     tables:
       - name: raw_filosofi_communes
         description: >

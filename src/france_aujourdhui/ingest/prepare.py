@@ -9,7 +9,7 @@ from pathlib import Path
 import duckdb
 from rich.console import Console
 
-from .config import IDF_DEPARTEMENTS, IDF_REGION, PROCESSED_DIR, RAW_DIR
+from .config import DVF_ANNEES, IDF_DEPARTEMENTS, IDF_REGION, PROCESSED_DIR, RAW_DIR
 
 console = Console()
 
@@ -52,28 +52,30 @@ def load_stats_dvf(con: duckdb.DuckDBPyConnection) -> None:
     con.execute(f"""
         CREATE TABLE raw_stats_dvf AS
         SELECT *
-        FROM read_csv('{src}', auto_detect=true, header=true, all_varchar=true)
+        FROM read_csv('{src}', auto_detect=true, header=true, all_varchar=true,
+                      quote='"')
     """)
     count = con.execute("SELECT count(*) FROM raw_stats_dvf").fetchone()[0]
     console.print(f"  [green]{count:,} lignes chargées[/green]")
 
 
 def load_dvf_plus(con: duckdb.DuckDBPyConnection) -> None:
-    """Charge les fichiers DVF+ départementaux IDF dans une seule table."""
+    """Charge les fichiers DVF géolocalisés IDF dans une seule table."""
     files = []
-    for dep in IDF_DEPARTEMENTS:
-        csv_path = RAW_DIR / f"dvf_plus_{dep}.csv"
-        gz_path = RAW_DIR / f"dvf_plus_{dep}.csv.gz"
-        if csv_path.exists():
-            files.append(str(csv_path))
-        elif gz_path.exists():
-            files.append(str(gz_path))
+    for annee in DVF_ANNEES:
+        for dep in IDF_DEPARTEMENTS:
+            csv_path = RAW_DIR / f"dvf_plus_{dep}_{annee}.csv"
+            gz_path = RAW_DIR / f"dvf_plus_{dep}_{annee}.csv.gz"
+            if csv_path.exists():
+                files.append(str(csv_path))
+            elif gz_path.exists():
+                files.append(str(gz_path))
 
     if not files:
         console.print("[yellow]Aucun fichier DVF+ trouvé, skip[/yellow]")
         return
 
-    console.print(f"[bold]Chargement DVF+ ({len(files)} départements)…[/bold]")
+    console.print(f"[bold]Chargement DVF ({len(files)} fichiers)…[/bold]")
     con.execute("DROP TABLE IF EXISTS raw_dvf_plus")
 
     files_str = ", ".join(f"'{f}'" for f in files)
@@ -108,18 +110,18 @@ def load_filosofi_communes(con: duckdb.DuckDBPyConnection) -> None:
 
 def load_population_communes(con: duckdb.DuckDBPyConnection) -> None:
     """Charge la population communale historique."""
-    xlsx = RAW_DIR / "base-pop-historiques-1876-2021.xlsx"
+    xlsx = RAW_DIR / "base-pop-historiques-1876-2023.xlsx"
     if not xlsx.exists():
         console.print("[yellow]Population communes non trouvé, skip[/yellow]")
         return
 
     console.print("[bold]Chargement population communale…[/bold]")
-    con.execute("INSTALL spatial; LOAD spatial;")
+    con.execute("INSTALL excel; LOAD excel;")
     con.execute("DROP TABLE IF EXISTS raw_population_communes")
     con.execute(f"""
         CREATE TABLE raw_population_communes AS
         SELECT *
-        FROM st_read('{xlsx}')
+        FROM read_xlsx('{xlsx}', header=true, range='A6:AZ40000', all_varchar=true)
     """)
     count = con.execute("SELECT count(*) FROM raw_population_communes").fetchone()[0]
     console.print(f"  [green]{count:,} lignes chargées[/green]")
@@ -127,7 +129,7 @@ def load_population_communes(con: duckdb.DuckDBPyConnection) -> None:
 
 def load_population_age(con: duckdb.DuckDBPyConnection) -> None:
     """Charge la population par âge quinquennal."""
-    src = RAW_DIR / "BTT_TD_POP1B_2021.csv"
+    src = RAW_DIR / "TD_POP1B_2021.csv"
     if not src.exists():
         console.print("[yellow]Population âge non trouvé, skip[/yellow]")
         return

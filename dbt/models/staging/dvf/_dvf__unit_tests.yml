@@ -1,0 +1,31 @@
+unit_tests:
+  - name: test_mutations_filters_ventes_only
+    description: >
+      Verifie que stg_dvf__mutations_idf ne garde que les ventes
+      et exclut les lignes sans code_commune.
+    model: stg_dvf__mutations_idf
+    overrides:
+      macros:
+        is_incremental: false
+    given:
+      - input: source('dvf', 'raw_dvf_plus')
+        rows:
+          - {id_mutation: "M1", date_mutation: "2024-01-15", nature_mutation: "Vente",
+             code_commune: "75101", nom_commune: "Paris 1er", code_departement: "75",
+             code_postal: "75001", type_local: "Appartement", nombre_pieces_principales: "3",
+             surface_reelle_bati: "65", surface_terrain: "", valeur_fonciere: "450000",
+             latitude: "48.86", longitude: "2.34", numero_disposition: "1"}
+          - {id_mutation: "M2", date_mutation: "2024-02-01", nature_mutation: "Echange",
+             code_commune: "75102", nom_commune: "Paris 2e", code_departement: "75",
+             code_postal: "75002", type_local: "Appartement", nombre_pieces_principales: "2",
+             surface_reelle_bati: "40", surface_terrain: "", valeur_fonciere: "300000",
+             latitude: "48.87", longitude: "2.34", numero_disposition: "1"}
+          - {id_mutation: "M3", date_mutation: "2024-03-01", nature_mutation: "Vente",
+             code_commune: "", nom_commune: "", code_departement: "",
+             code_postal: "", type_local: "Maison", nombre_pieces_principales: "",
+             surface_reelle_bati: "", surface_terrain: "", valeur_fonciere: "200000",
+             latitude: "", longitude: "", numero_disposition: "1"}
+    expect:
+      rows:
+        - {id_mutation: "M1", nature_mutation: "Vente", code_commune: "75101",
+           valeur_fonciere: 450000.0, surface_bati: 65.0, annee: 2024}

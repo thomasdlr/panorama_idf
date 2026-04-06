@@ -8,10 +8,13 @@
     cast(
         nullif(
             nullif(
-                replace(trim({{ column_name }}), ',', '.'),
-                ''
+                nullif(
+                    replace(trim({{ column_name }}), ',', '.'),
+                    ''
+                ),
+                's'
             ),
-            's'
+            'nd'
         ) as double
     )
 {% endmacro %}

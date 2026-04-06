@@ -1,0 +1,39 @@
+name: dbt build
+
+on:
+  pull_request:
+    paths:
+      - "dbt/**"
+      - "src/**"
+  push:
+    branches: [main]
+    paths:
+      - "dbt/**"
+      - "src/**"
+
+jobs:
+  dbt-build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v4
+
+      - name: Install dependencies
+        run: uv sync
+
+      - name: Ingest data
+        run: uv run ingest
+
+      - name: dbt deps
+        working-directory: dbt
+        run: uv run dbt deps
+
+      - name: dbt build (run + test)
+        working-directory: dbt
+        run: uv run dbt build
+
+      - name: dbt docs generate
+        working-directory: dbt
+        run: uv run dbt docs generate

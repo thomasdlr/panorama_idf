@@ -3,34 +3,28 @@ version: 2
 models:
   - name: stg_dvf__stats_communales
     description: >
-      Statistiques DVF agrégées, nettoyées. Ventes uniquement.
-      Grain : commune × année × type de bien.
+      Statistiques DVF agrégées, nettoyées.
+      Grain : entité géographique (commune, EPCI, département) — pas de dimension année.
     columns:
-      - name: code_commune
-        description: Code INSEE de la commune
+      - name: code_geo
+        description: Code INSEE de l'entité géographique
         tests:
           - not_null
-      - name: annee
-        description: Année de la mutation
-        tests:
-          - not_null
-      - name: nature_mutation
-        description: "Toujours 'Vente' (filtré en staging)"
-      - name: type_local
-        description: "Type de bien : Appartement, Maison, etc."
-      - name: prix_m2_median
-        description: Prix médian au m² (euros)
-      - name: prix_m2_moyen
-        description: Prix moyen au m² (euros)
-      - name: nb_mutations
-        description: Nombre de mutations sur la période
-      - name: prix_median
-        description: Prix médian de la transaction (euros)
+      - name: echelle_geo
+        description: "Échelle : commune, epci, departement"
+      - name: nb_ventes_appartement
+        description: Nombre de ventes d'appartements
+      - name: prix_m2_median_appartement
+        description: Prix médian au m² appartements (euros)
+      - name: nb_ventes_maison
+        description: Nombre de ventes de maisons
+      - name: prix_m2_median_maison
+        description: Prix médian au m² maisons (euros)
 
   - name: stg_dvf__mutations_idf
     description: >
-      Mutations DVF+ individuelles pour l'Île-de-France, nettoyées.
-      Source Cerema. Ne contient PAS l'âge de l'acquéreur.
+      Mutations DVF géolocalisées individuelles pour l'Île-de-France, nettoyées.
+      Source geo-dvf (data.gouv.fr). Ne contient PAS l'âge de l'acquéreur.
       Grain : mutation.
     columns:
       - name: id_mutation
