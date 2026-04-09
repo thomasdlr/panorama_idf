@@ -1,0 +1,27 @@
+version: 2
+
+models:
+  - name: stg_logement__loyers_communes
+    description: >
+      Loyers predits au m2 par commune (appartements, 2025).
+      Source : carte des loyers ANIL. Valeurs en euros/m2/mois.
+    columns:
+      - name: code_commune
+        description: Code INSEE
+        tests: [not_null]
+      - name: loyer_m2_median
+        description: Loyer predit au m2/mois (EUR)
+
+  - name: stg_logement__delinquance_communes
+    description: >
+      Taux de delinquance par commune et annee.
+      Agregation des principaux indicateurs en un taux global pour 1000 habitants.
+      Secret statistique : communes avec < 6 faits exclues de certains indicateurs.
+    columns:
+      - name: code_commune
+        description: Code INSEE
+        tests: [not_null]
+      - name: annee
+        description: Annee (2016-2024)
+      - name: taux_delinquance_pour_mille
+        description: Total des faits constates pour 1000 habitants

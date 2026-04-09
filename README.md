@@ -150,6 +150,7 @@ Les jointures entre sources se font sur `code_commune` (INSEE). Risques :
 - Python >= 3.11
 - [uv](https://docs.astral.sh/uv/) installé
 - [just](https://github.com/casey/just) installé (`brew install just`)
+- [Docker](https://docs.docker.com/get-docker/) installé (pour Metabase)
 
 ### Installation
 
@@ -191,6 +192,27 @@ uv run dbt docs serve     # Servir la doc sur localhost:8080
 
 # Export CSV
 just export               # Exporte les marts dans data/processed/
+
+# Metabase (dashboard)
+just metabase-up          # Lance PostgreSQL + Metabase, exporte les marts, configure le dashboard
+just metabase-down        # Arrête les containers
+```
+
+### Metabase
+
+Le dashboard est accessible sur `http://localhost:3000` après `just metabase-up`.
+
+L'architecture de visualisation :
+- **DuckDB** reste le moteur analytique (ingestion, dbt)
+- **PostgreSQL** (Docker) reçoit les 4 tables marts via l'extension `postgres` de DuckDB
+- **Metabase** (Docker) se connecte à PostgreSQL nativement
+
+Le script `scripts/setup_metabase.py` automatise tout : démarrage Docker, export des marts, configuration admin, création des questions et du dashboard avec 3 onglets (Ile-de-France, Paris, Petite couronne) et des cartes choroplèthes.
+
+```
+Credentials par défaut :
+  Email : admin@france-aujourdhui.local
+  Mot de passe : FranceAujourdhui2024!
 ```
 
 ## Extension V2 : Paris / IRIS / arrondissements
@@ -229,9 +251,11 @@ Pour activer :
 | **uv** | Gestion Python et dépendances |
 | **DuckDB** | Warehouse analytique local |
 | **dbt-duckdb** | Transformations SQL, tests, documentation |
+| **PostgreSQL** | Base de serving pour Metabase (Docker) |
+| **Metabase** | Dashboard et visualisation (Docker) |
 | **httpx** | Téléchargement des fichiers |
-| **pandas / pyarrow** | Manipulation ponctuelle si nécessaire |
 | **rich** | Affichage console |
+| **GitHub Actions** | CI : `dbt build` sur chaque PR |
 
 ## Licence
 

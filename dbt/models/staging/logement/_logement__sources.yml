@@ -1,0 +1,25 @@
+version: 2
+
+sources:
+  - name: logement
+    description: >
+      Donnees sur le logement et la securite : loyers (carte des loyers ANIL),
+      delinquance (SSMSI / Ministere de l'Interieur).
+    schema: main
+    freshness:
+      warn_after: {count: 365, period: day}
+      error_after: {count: 730, period: day}
+    loaded_at_field: "current_date"
+    tables:
+      - name: raw_loyers_communes
+        description: >
+          Carte des loyers 2025 — loyer predit au m2 par commune pour les
+          appartements. Source : Ministere de la Transition ecologique / ANIL.
+          Modele statistique base sur les annonces de location.
+
+      - name: raw_delinquance_communes
+        description: >
+          Delinquance enregistree par la police et la gendarmerie nationales,
+          par commune, depuis 2016. Source : SSMSI / Ministere de l'Interieur.
+          Indicateurs : violences, vols, cambriolages, etc.
+          Secret statistique : communes avec < 6 faits sont masquees.

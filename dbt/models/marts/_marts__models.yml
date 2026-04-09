@@ -64,6 +64,16 @@ models:
         description: >
           Annees de revenu Q1 pour un achat median.
           Mesure l'accessibilite pour les menages les plus modestes.
+      - name: loyer_m2_median
+        description: Loyer predit au m2/mois (EUR, carte des loyers 2025, fixe)
+      - name: ratio_achat_loyer_annuel
+        description: >
+          Annees de loyer pour un achat au m2.
+          Formule : prix_m2_median / (loyer_m2_median * 12).
+      - name: taux_delinquance_pour_mille
+        description: Faits de delinquance pour 1000 habitants (variable par annee)
+      - name: nb_faits_delinquance
+        description: Nombre total de faits constates
 
   - name: mart_immo__ranking_tension
     description: >

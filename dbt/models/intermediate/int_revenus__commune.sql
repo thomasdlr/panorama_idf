@@ -1,13 +1,13 @@
 /*
     int_revenus__commune
     --------------------
-    Revenus et niveau de vie par commune IDF.
-    Jointure Filosofi + population communale.
+    Revenus, loyers et securite par commune IDF.
+    Jointure Filosofi + population + loyers + delinquance.
 
     Grain : commune IDF
 
-    On enrichit les données Filosofi avec la population
-    pour permettre des analyses rapportées à la taille de la commune.
+    On enrichit les donnees Filosofi avec la population, les loyers
+    et la delinquance pour permettre des analyses multi-dimensionnelles.
 */
 
 with communes_idf as (
@@ -20,10 +20,13 @@ filosofi as (
 ),
 
 population as (
-    select
-        code_commune,
-        population_2021
+    select code_commune, population_2021
     from {{ ref('stg_insee__population_communes') }}
+),
+
+loyers as (
+    select code_commune, loyer_m2_median
+    from {{ ref('stg_logement__loyers_communes') }}
 ),
 
 joined as (
@@ -46,12 +49,16 @@ joined as (
         -- Population
         p.population_2021,
 
-        -- Ratio d'inégalité interdécile
+        -- Loyers
+        l.loyer_m2_median,
+
+        -- Ratio d'inegalite interdecile
         round(f.niveau_vie_d9 / nullif(f.niveau_vie_d1, 0), 2) as ratio_interdecile_d9_d1
 
     from communes_idf c
     left join filosofi f on c.code_commune = f.code_commune
     left join population p on c.code_commune = p.code_commune
+    left join loyers l on c.code_commune = l.code_commune
 )
 
 select * from joined

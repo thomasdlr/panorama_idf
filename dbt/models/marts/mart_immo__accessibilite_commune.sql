@@ -1,28 +1,22 @@
 /*
     mart_immo__accessibilite_commune
     ================================
-    Table analytique finale : accessibilité immobilière par commune IDF.
+    Table analytique finale : accessibilite immobiliere par commune IDF.
 
-    Croise prix immobiliers, revenus locaux et structure d'âge
-    pour produire des indicateurs de "tension d'accès" à l'achat.
+    Croise prix immobiliers, revenus locaux, structure d'age, loyers
+    et delinquance pour produire des indicateurs d'accessibilite.
 
-    Grain : commune IDF × année
+    Grain : commune IDF x annee
 
     KPI principaux :
-    - ratio_prix_m2_revenu : prix médian au m² / revenu disponible médian mensuel
-      → combien de mois de revenu pour 1 m²
-    - ratio_achat_revenu : prix médian transaction / revenu annuel médian
-      → combien d'années de revenu pour un achat médian
-    - indice_tension : score composite normalisé (voir calcul ci-dessous)
+    - ratio_prix_m2_revenu_mensuel : mois de revenu pour 1 m2
+    - ratio_achat_revenu_annuel : annees de revenu pour un achat median
+    - loyer_m2_median : loyer predit au m2 (fixe, carte des loyers 2025)
+    - taux_delinquance : faits pour 1000 habitants (variable par annee)
 
-    Limites méthodologiques :
-    - Le revenu utilisé est le niveau de vie Filosofi (par UC), pas le revenu
-      des ménages acheteurs.
-    - Filosofi 2021 est fixe ; les prix varient par année. Le ratio
-      prix/revenu est donc un proxy, pas une mesure exacte du taux d'effort.
-    - La structure d'âge (RP 2021) est également fixe dans le temps.
-    - L'indice de tension est un outil de classement relatif, pas une mesure
-      absolue de difficulté d'accès.
+    Limites :
+    - Filosofi, RP et loyers sont fixes ; seuls prix et delinquance varient.
+    - L'indice de tension est un classement relatif, pas une mesure absolue.
 */
 
 with prix as (
@@ -41,18 +35,22 @@ geo as (
     select * from {{ ref('int_geo__communes_idf') }}
 ),
 
+delinquance as (
+    select * from {{ ref('stg_logement__delinquance_communes') }}
+),
+
 joined as (
     select
-        -- Géographie
+        -- Geographie
         g.code_commune,
         r.nom_commune,
         g.code_departement,
         g.zone_idf,
 
-        -- Année (vient des prix)
+        -- Annee (vient des prix)
         p.annee,
 
-        -- Population et démographie (fixe RP 2021)
+        -- Population et demographie (fixe RP 2021)
         r.population_2021,
         d.population_totale as population_rp,
         d.pop_25_39,
@@ -68,7 +66,10 @@ joined as (
         r.ratio_interdecile_d9_d1,
         r.nb_menages_fiscaux,
 
-        -- Prix immobiliers (variable par année)
+        -- Loyers (fixe, carte des loyers 2025)
+        r.loyer_m2_median,
+
+        -- Prix immobiliers (variable par annee)
         p.nb_ventes,
         p.nb_ventes_appartements,
         p.nb_ventes_maisons,
@@ -78,39 +79,40 @@ joined as (
         p.prix_m2_moyen,
         p.surface_mediane,
 
-        -- ═══════════════════════════════════════
-        -- KPI : ratios d'accessibilité
-        -- ═══════════════════════════════════════
+        -- Delinquance (variable par annee)
+        del.taux_delinquance_pour_mille,
+        del.nb_faits_total as nb_faits_delinquance,
 
-        -- Ratio prix m² / revenu mensuel médian
-        -- "Combien de mois de niveau de vie médian pour 1 m²"
+        -- KPI : ratios d'accessibilite
+
+        -- Mois de revenu pour 1 m2
         round(
-            p.prix_m2_median / nullif(r.niveau_vie_median / 12.0, 0),
-            1
+            p.prix_m2_median / nullif(r.niveau_vie_median / 12.0, 0), 1
         ) as ratio_prix_m2_revenu_mensuel,
 
-        -- Ratio prix médian transaction / revenu annuel
-        -- "Combien d'années de niveau de vie pour un achat médian"
+        -- Annees de revenu pour un achat median
         round(
-            p.prix_median / nullif(r.niveau_vie_median, 0),
-            1
+            p.prix_median / nullif(r.niveau_vie_median, 0), 1
         ) as ratio_achat_revenu_annuel,
 
-        -- Ratio prix médian / revenu Q1 (ménages modestes)
-        -- Plus sévère : accessibilité pour le quart le moins aisé
+        -- Annees de revenu Q1 pour un achat median
         round(
-            p.prix_median / nullif(r.niveau_vie_q1, 0),
-            1
-        ) as ratio_achat_revenu_q1
+            p.prix_median / nullif(r.niveau_vie_q1, 0), 1
+        ) as ratio_achat_revenu_q1,
+
+        -- Annees de loyer pour un achat (prix median / loyer annuel)
+        round(
+            p.prix_m2_median / nullif(r.loyer_m2_median * 12, 0), 1
+        ) as ratio_achat_loyer_annuel
 
     from prix p
     inner join geo g on p.code_commune = g.code_commune
     left join revenus r on g.code_commune = r.code_commune
     left join demographie d on g.code_commune = d.code_commune
+    left join delinquance del
+        on g.code_commune = del.code_commune and p.annee = del.annee
     where
-        -- On exclut les communes avec trop peu de ventes (bruit statistique)
         p.nb_ventes >= 5
-        -- On exclut celles sans revenu connu
         and r.niveau_vie_median is not null
 )
 

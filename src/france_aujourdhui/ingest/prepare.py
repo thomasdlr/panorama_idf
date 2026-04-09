@@ -146,6 +146,51 @@ def load_population_age(con: duckdb.DuckDBPyConnection) -> None:
     console.print(f"  [green]{count:,} lignes chargées[/green]")
 
 
+def load_loyers_communes(con: duckdb.DuckDBPyConnection) -> None:
+    """Charge la carte des loyers par commune."""
+    src = RAW_DIR / "loyers_communes_2025.csv"
+    if not src.exists():
+        console.print("[yellow]Loyers communes non trouvé, skip[/yellow]")
+        return
+
+    console.print("[bold]Chargement loyers communes…[/bold]")
+    # Convert from latin1 to utf-8 if needed
+    utf8_path = src.with_suffix(".utf8.csv")
+    if not utf8_path.exists():
+        with open(src, encoding="latin-1") as f_in, open(utf8_path, "w", encoding="utf-8") as f_out:
+            f_out.write(f_in.read())
+    con.execute("DROP TABLE IF EXISTS raw_loyers_communes")
+    con.execute(f"""
+        CREATE TABLE raw_loyers_communes AS
+        SELECT *
+        FROM read_csv('{utf8_path}', header=true, all_varchar=true,
+                      delim=';', quote='"')
+    """)
+    count = con.execute("SELECT count(*) FROM raw_loyers_communes").fetchone()[0]
+    console.print(f"  [green]{count:,} lignes chargées[/green]")
+
+
+def load_delinquance_communes(con: duckdb.DuckDBPyConnection) -> None:
+    """Charge la délinquance par commune."""
+    csv_path = RAW_DIR / "delinquance_communes.csv"
+    gz_path = RAW_DIR / "delinquance_communes.csv.gz"
+    src = csv_path if csv_path.exists() else gz_path
+    if not src.exists():
+        console.print("[yellow]Délinquance communes non trouvé, skip[/yellow]")
+        return
+
+    console.print("[bold]Chargement délinquance communes…[/bold]")
+    con.execute("DROP TABLE IF EXISTS raw_delinquance_communes")
+    con.execute(f"""
+        CREATE TABLE raw_delinquance_communes AS
+        SELECT *
+        FROM read_csv('{src}', auto_detect=true, header=true, all_varchar=true,
+                      delim=';', quote='"', null_padding=true)
+    """)
+    count = con.execute("SELECT count(*) FROM raw_delinquance_communes").fetchone()[0]
+    console.print(f"  [green]{count:,} lignes chargées[/green]")
+
+
 def load_all() -> None:
     """Charge toutes les données brutes dans DuckDB."""
     console.print("\n[bold blue]═══ Chargement des données dans DuckDB ═══[/bold blue]\n")
@@ -157,6 +202,8 @@ def load_all() -> None:
     load_filosofi_communes(con)
     load_population_communes(con)
     load_population_age(con)
+    load_loyers_communes(con)
+    load_delinquance_communes(con)
 
     # Liste les tables créées
     tables = con.execute("SHOW TABLES").fetchall()

@@ -9,12 +9,15 @@
         nullif(
             nullif(
                 nullif(
-                    replace(trim({{ column_name }}), ',', '.'),
-                    ''
+                    nullif(
+                        replace(trim({{ column_name }}), ',', '.'),
+                        ''
+                    ),
+                    's'
                 ),
-                's'
+                'nd'
             ),
-            'nd'
+            'NA'
         ) as double
     )
 {% endmacro %}

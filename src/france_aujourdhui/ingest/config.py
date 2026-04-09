@@ -118,6 +118,26 @@ COG_COMMUNES = DatasetConfig(
 
 
 # ---------------------------------------------------------------------------
+# Carte des loyers — loyers médians par commune (data.gouv.fr / ANIL)
+# ---------------------------------------------------------------------------
+LOYERS_COMMUNES = DatasetConfig(
+    name="loyers_communes",
+    url="https://www.data.gouv.fr/api/1/datasets/r/55b34088-0964-415f-9df7-d87dd98a09be",
+    filename="loyers_communes_2025.csv",
+    description="Carte des loyers 2025 — loyer prédit au m² par commune (appartements)",
+)
+
+# ---------------------------------------------------------------------------
+# Délinquance — crimes et délits par commune (Ministère Intérieur / SSMSI)
+# ---------------------------------------------------------------------------
+DELINQUANCE_COMMUNES = DatasetConfig(
+    name="delinquance_communes",
+    url="https://www.data.gouv.fr/api/1/datasets/r/44ef4323-1097-48d5-8719-3c544b55d294",
+    filename="delinquance_communes.csv.gz",
+    description="Délinquance enregistrée par commune depuis 2016 (police + gendarmerie)",
+)
+
+# ---------------------------------------------------------------------------
 # Tous les datasets V1 (commune × année, Île-de-France)
 # ---------------------------------------------------------------------------
 ALL_V1_DATASETS: list[DatasetConfig] = [
@@ -126,6 +146,8 @@ ALL_V1_DATASETS: list[DatasetConfig] = [
     POPULATION_COMMUNES,
     POPULATION_AGE,
     COG_COMMUNES,
+    LOYERS_COMMUNES,
+    DELINQUANCE_COMMUNES,
 ] + DVF_PLUS_DATASETS
 
 # Datasets V2 (IRIS)
