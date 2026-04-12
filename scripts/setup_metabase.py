@@ -241,6 +241,79 @@ def export_cycling_to_postgres() -> None:
     con.close()
 
 
+def export_metro_to_postgres() -> None:
+    """Download metro+RER station data from IDFM and aggregate by commune."""
+    # Fetch all metro + RER stops (paginated)
+    stops: list[dict] = []
+    for mode in ("Metro", "RER"):
+        offset = 0
+        while True:
+            r = httpx.get(
+                "https://data.iledefrance-mobilites.fr/api/explore/v2.1/catalog/datasets/"
+                "arrets-lignes/records",
+                params={"limit": 100, "offset": offset, "where": f'mode = "{mode}"',
+                        "select": "stop_name, stop_lat, stop_lon, mode, shortname"},
+                timeout=15,
+            )
+            batch = r.json().get("results", [])
+            stops.extend(batch)
+            if len(batch) < 100:
+                break
+            offset += 100
+
+    # Deduplicate: unique physical stations with their line count
+    stations: dict[str, dict] = {}
+    for s in stops:
+        name = s["stop_name"]
+        if name not in stations:
+            stations[name] = {"lat": float(s["stop_lat"]), "lon": float(s["stop_lon"]),
+                              "lines": set(), "modes": set()}
+        stations[name]["lines"].add(s["shortname"])
+        stations[name]["modes"].add(s["mode"])
+    print(f"  {len(stops)} arrêts IDFM → {len(stations)} stations physiques (métro+RER)")
+
+    con = duckdb.connect()
+    con.execute("INSTALL spatial; LOAD spatial;")
+    con.execute("INSTALL postgres; LOAD postgres;")
+    con.execute(f"ATTACH '{PG_CONN}' AS pg (TYPE POSTGRES)")
+
+    con.execute("CREATE TABLE stops (name VARCHAR, lat DOUBLE, lon DOUBLE, nb_lines INTEGER, modes VARCHAR)")
+    con.executemany("INSERT INTO stops VALUES (?, ?, ?, ?, ?)",
+                    [(n, d["lat"], d["lon"], len(d["lines"]), "+".join(sorted(d["modes"])))
+                     for n, d in stations.items()])
+
+    geojson_path = str(GEOJSON_DIR / "idf_communes.geojson")
+    con.execute(f"CREATE TABLE geo AS SELECT * FROM ST_Read('{geojson_path}')")
+
+    con.execute("DROP TABLE IF EXISTS pg.public.metro_stations")
+    con.execute("""
+        CREATE TABLE pg.public.metro_stations AS
+        WITH areas AS (
+            SELECT code, nom, ST_Area(geom) * 111.12 * 111.12 * 0.6583 as area_km2
+            FROM geo
+        ),
+        counts AS (
+            SELECT g.code as code_commune, g.nom as nom_commune,
+                   count(*)::integer as nb_stations,
+                   sum(s.nb_lines)::integer as nb_lignes_accessibles
+            FROM stops s
+            JOIN geo g ON ST_Contains(g.geom, ST_Point(s.lon, s.lat))
+            GROUP BY g.code, g.nom
+        )
+        SELECT c.code_commune, c.nom_commune,
+               c.nb_stations, c.nb_lignes_accessibles,
+               round(a.area_km2::numeric, 2) as superficie_km2,
+               round((c.nb_stations / a.area_km2)::numeric, 1) as stations_par_km2
+        FROM counts c JOIN areas a ON c.code_commune = a.code
+        ORDER BY c.code_commune
+    """)
+    rows = con.execute("SELECT count(*) FROM pg.public.metro_stations").fetchone()[0]
+    print(f"  metro_stations — {rows} communes desservies")
+
+    con.execute("DETACH pg")
+    con.close()
+
+
 def export_diplomes_to_postgres() -> None:
     """Download INSEE diploma data and compute education metrics by commune."""
     import io
@@ -743,6 +816,12 @@ FROM velib_stations WHERE code_commune LIKE '751%'""",
 FROM cyclable_paris""",
         viz=map_viz("paris_arr", "km_par_km2"))
 
+    c_paris_map_metro = make_card(client, db_id,
+        "Densité métro + RER — Paris (stations/km²)", "map",
+        """SELECT code_commune, nom_commune, stations_par_km2, nb_lignes_accessibles
+FROM metro_stations WHERE code_commune LIKE '751%'""",
+        viz=map_viz("paris_arr", "stations_par_km2"))
+
     c_paris_map_diplome = make_card(client, db_id,
         "Part des diplômés du supérieur — Paris", "map",
         f"""SELECT a.code_commune, a.nom_commune, d.part_etudes_sup
@@ -822,10 +901,16 @@ GROUP BY categorie ORDER BY taux_pour_mille DESC""",
              "graph.y_axis.title_text": "Faits / 1000 hab."})
 
     c_pc_map_velib = make_card(client, db_id,
-        "Stations Vélib — Petite couronne", "map",
-        """SELECT code_commune, nom_commune, nb_stations
+        "Densité Vélib — Petite couronne (stations/km²)", "map",
+        """SELECT code_commune, nom_commune, stations_par_km2
 FROM velib_stations WHERE left(code_commune, 2) IN ('92', '93', '94')""",
-        viz=map_viz("petite_couronne", "nb_stations"))
+        viz=map_viz("petite_couronne", "stations_par_km2"))
+
+    c_pc_map_metro = make_card(client, db_id,
+        "Densité métro + RER — Petite couronne (stations/km²)", "map",
+        """SELECT code_commune, nom_commune, stations_par_km2
+FROM metro_stations WHERE left(code_commune, 2) IN ('92', '93', '94')""",
+        viz=map_viz("petite_couronne", "stations_par_km2"))
 
     c_pc_map_diplome = make_card(client, db_id,
         "Part des diplômés du supérieur — Petite couronne", "map",
@@ -905,8 +990,9 @@ WHERE a.annee = {Y} AND a.zone_idf = 'Petite couronne'""",
             _card(c_paris_map_diplome,      T2, 76,  0, 12, 10),
             _card(c_paris_map_sans_diplome, T2, 76, 12, 12, 10),
             _head(T2, 87, "Mobilité"),
-            _card(c_paris_map_velib,        T2, 89,  0, 12, 10),
-            _card(c_paris_map_cyclable,     T2, 89, 12, 12, 10),
+            _card(c_paris_map_metro,        T2, 89,  0, 12, 10),
+            _card(c_paris_map_velib,        T2, 89, 12, 12, 10),
+            _card(c_paris_map_cyclable,     T2, 99,  0, 24, 10),
             # ═══ Petite couronne ═══
             _head(T3,  0, "Marché immobilier"),
             _card(c_pc_map_prix,        T3,  2,  0, 12, 10),
@@ -920,7 +1006,8 @@ WHERE a.annee = {Y} AND a.zone_idf = 'Petite couronne'""",
             _head(T3, 51, "Éducation"),
             _card(c_pc_map_diplome,     T3, 53,  0, 24, 10),
             _head(T3, 64, "Mobilité"),
-            _card(c_pc_map_velib,       T3, 66,  0, 24, 10),
+            _card(c_pc_map_metro,       T3, 66,  0, 12, 10),
+            _card(c_pc_map_velib,       T3, 66, 12, 12, 10),
         ],
     })
     r.raise_for_status()
@@ -943,28 +1030,31 @@ def main() -> None:
     print("\n[3/8] Génération GeoJSON")
     generate_geojson()
 
-    print("\n[4/10] Données Vélib")
+    print("\n[4/11] Données Vélib")
     export_velib_to_postgres()
 
-    print("\n[5/10] Pistes cyclables et comptages vélo")
+    print("\n[5/11] Pistes cyclables")
     export_cycling_to_postgres()
 
-    print("\n[6/10] Données diplômes INSEE")
+    print("\n[6/11] Stations métro et RER (IDFM)")
+    export_metro_to_postgres()
+
+    print("\n[7/11] Données diplômes INSEE")
     export_diplomes_to_postgres()
 
     client = httpx.Client(base_url=METABASE_URL, timeout=30)
 
-    print("\n[7/10] Connexion à Metabase")
+    print("\n[8/11] Connexion à Metabase")
     wait_for_metabase(client)
 
-    print("\n[8/10] Configuration admin")
+    print("\n[9/11] Configuration admin")
     session_id = setup_admin(client)
     client.headers["X-Metabase-Session"] = session_id
 
-    print("\n[9/10] Base de données PostgreSQL")
+    print("\n[10/11] Base de données PostgreSQL")
     db_id = add_postgres_database(client)
 
-    print("\n[10/10] Cartes GeoJSON + dashboard")
+    print("\n[11/11] Cartes GeoJSON + dashboard")
     register_geojson_maps(client)
     dash_id = create_tabbed_dashboard(client, db_id)
 
