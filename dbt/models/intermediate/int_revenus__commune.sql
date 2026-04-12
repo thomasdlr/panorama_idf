@@ -61,4 +61,20 @@ joined as (
     left join loyers l on c.code_commune = l.code_commune
 )
 
-select * from joined
+select
+    code_commune,
+    nom_commune,
+    code_departement,
+    zone_idf,
+    niveau_vie_median,
+    niveau_vie_q1,
+    niveau_vie_q3,
+    niveau_vie_d1,
+    niveau_vie_d9,
+    indice_gini,
+    taux_pauvrete_60,
+    nb_menages_fiscaux,
+    population_2021,
+    loyer_m2_median,
+    ratio_interdecile_d9_d1
+from joined

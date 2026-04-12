@@ -36,10 +36,10 @@ mutations_dedup as (
     inner join communes_idf c on m.code_commune = c.code_commune
     where
         m.type_local in ('Appartement', 'Maison')
-        and m.valeur_fonciere > 1000
-        and m.valeur_fonciere < 50000000
-        and m.surface_bati > 5
-        and m.surface_bati < 5000
+        and m.valeur_fonciere > {{ var('dvf_prix_min') }}
+        and m.valeur_fonciere < {{ var('dvf_prix_max') }}
+        and m.surface_bati > {{ var('dvf_surface_min') }}
+        and m.surface_bati < {{ var('dvf_surface_max') }}
     order by m.id_mutation, m.surface_bati desc
 ),
 
@@ -66,8 +66,20 @@ aggregated as (
         avg(surface_bati) as surface_moyenne
 
     from mutations_dedup
-    where annee >= 2018
+    where annee >= {{ var('dvf_annee_min') }}
     group by code_commune, annee
 )
 
-select * from aggregated
+select
+    code_commune,
+    annee,
+    nb_ventes,
+    nb_ventes_appartements,
+    nb_ventes_maisons,
+    prix_median,
+    prix_moyen,
+    prix_m2_median,
+    prix_m2_moyen,
+    surface_mediane,
+    surface_moyenne
+from aggregated

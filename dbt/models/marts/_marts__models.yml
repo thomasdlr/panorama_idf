@@ -26,8 +26,14 @@ models:
       - name: zone_idf
         description: "Paris / Petite couronne / Grande couronne"
       - name: annee
-        description: Annee de la transaction (2020-2025)
+        description: Année de la transaction (2020-2025)
         tests: [not_null]
+      - name: zone_idf
+        tests:
+          - not_null
+          - accepted_values:
+              arguments:
+                values: ['Paris', 'Petite couronne', 'Grande couronne']
       - name: population_2021
         description: Population municipale (recensement 2021)
       - name: pop_25_39
@@ -41,15 +47,18 @@ models:
       - name: niveau_vie_q1
         description: 1er quartile du niveau de vie (Filosofi 2021)
       - name: nb_ventes
-        description: Nombre de ventes residentielles (appart + maisons)
+        description: Nombre de ventes résidentielles (appart + maisons)
+        tests: [not_null]
       - name: nb_ventes_appartements
         description: Nombre de ventes d'appartements
       - name: nb_ventes_maisons
         description: Nombre de ventes de maisons
       - name: prix_median
-        description: Prix median de la transaction (EUR)
+        description: Prix médian de la transaction (EUR)
+        tests: [not_null]
       - name: prix_m2_median
-        description: Prix median au m2 (EUR)
+        description: Prix médian au m² (EUR)
+        tests: [not_null]
       - name: surface_mediane
         description: Surface mediane du bien (m2)
       - name: ratio_prix_m2_revenu_mensuel
@@ -88,6 +97,7 @@ models:
               arguments:
                 values: ['Paris', 'Petite couronne', 'Grande couronne']
       - name: annee
+        description: Année de la transaction
         tests: [not_null]
       - name: nb_communes
         description: Nombre de communes avec >= 5 ventes
@@ -109,14 +119,21 @@ models:
       Communes avec < 5 ventes exclues.
     columns:
       - name: code_commune
-        tests: [not_null]
+        description: Code INSEE de la commune (5 caractères)
+        tests:
+          - not_null
+          - relationships:
+              arguments:
+                to: ref('int_geo__communes_idf')
+                field: code_commune
       - name: nom_commune
-        description: Libelle officiel
+        description: Libellé officiel de la commune
       - name: code_departement
-        description: Code departement
+        description: Code département (2 caractères)
       - name: zone_idf
         description: "Paris / Petite couronne / Grande couronne"
       - name: annee
+        description: Année de la transaction
         tests: [not_null]
       - name: nb_ventes
         description: Nombre de ventes residentielles

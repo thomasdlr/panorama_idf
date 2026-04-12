@@ -23,6 +23,16 @@ seeds:
       +column_types:
         code_departement: varchar
 
+vars:
+  # Seuils de filtrage DVF (int_immo__prix_commune_annee)
+  dvf_prix_min: 1000
+  dvf_prix_max: 50000000
+  dvf_surface_min: 5
+  dvf_surface_max: 5000
+  dvf_annee_min: 2018
+  # Seuil minimum de ventes pour inclure une commune
+  communes_nb_ventes_min: 5
+
 models:
   france_aujourdhui:
     staging:

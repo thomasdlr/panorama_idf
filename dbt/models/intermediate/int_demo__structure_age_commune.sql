@@ -86,4 +86,11 @@ with_ratios as (
     from age_groups
 )
 
-select * from with_ratios
+select
+    code_commune,
+    population_totale,
+    pop_25_39,
+    pop_60_plus,
+    part_25_39,
+    part_60_plus
+from with_ratios

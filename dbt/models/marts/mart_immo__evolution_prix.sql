@@ -39,7 +39,7 @@ with_lag as (
 
     from prix p
     inner join geo g on p.code_commune = g.code_commune
-    where p.nb_ventes >= 5
+    where p.nb_ventes >= {{ var('communes_nb_ventes_min') }}
 ),
 
 with_evolution as (
@@ -63,4 +63,10 @@ with_evolution as (
     from with_lag
 )
 
-select * from with_evolution
+select
+    code_commune, nom_commune, code_departement, zone_idf,
+    annee, nb_ventes,
+    prix_m2_median, prix_median,
+    prix_m2_median_annee_prec, prix_median_annee_prec,
+    variation_prix_m2_pct, variation_prix_median_pct
+from with_evolution

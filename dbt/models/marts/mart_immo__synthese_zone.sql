@@ -59,5 +59,13 @@ aggregated as (
     group by zone_idf, annee
 )
 
-select * from aggregated
+select
+    zone_idf, annee,
+    population_totale, nb_communes,
+    nb_ventes_total,
+    prix_m2_median_pondere, prix_median_pondere,
+    niveau_vie_median_pondere,
+    part_25_39_ponderee,
+    ratio_achat_revenu_pondere, ratio_m2_revenu_pondere
+from aggregated
 order by annee, zone_idf

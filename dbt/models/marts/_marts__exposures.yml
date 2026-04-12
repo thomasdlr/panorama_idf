@@ -16,19 +16,5 @@ exposures:
       - ref('mart_immo__evolution_prix')
       - ref('stg_logement__delinquance_detail')
     owner:
-      name: Thomas Delard
-      email: contact@france-aujourdhui.fr
-
-  - name: site_editorial_idf
-    type: application
-    maturity: low
-    description: >
-      Site editorial « France Aujourd'hui » — articles, cartes et classements
-      sur l'immobilier et le cadre de vie en Ile-de-France.
-    depends_on:
-      - ref('mart_immo__accessibilite_commune')
-      - ref('mart_immo__synthese_zone')
-      - ref('mart_immo__evolution_prix')
-    owner:
-      name: Thomas Delard
-      email: contact@france-aujourdhui.fr
+      name: Thomas de Lard
+      email: thomas.delard@gmail.com

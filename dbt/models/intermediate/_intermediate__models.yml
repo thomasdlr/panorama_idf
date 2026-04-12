@@ -26,6 +26,7 @@ models:
       Filtré sur appartements et maisons, prix et surfaces cohérents.
     columns:
       - name: code_commune
+        description: Code INSEE de la commune (5 caractères)
         tests:
           - not_null
           - relationships:
@@ -33,10 +34,13 @@ models:
                 to: ref('int_geo__communes_idf')
                 field: code_commune
       - name: annee
+        description: Année de la transaction (2018+)
         tests:
           - not_null
       - name: nb_ventes
         description: Nombre total de ventes résidentielles
+        tests:
+          - not_null
       - name: prix_m2_median
         description: Prix médian au m² (tous biens résidentiels confondus)
 
@@ -48,20 +52,37 @@ models:
       de la population résidente.
     columns:
       - name: code_commune
+        description: Code INSEE de la commune (5 caractères)
         tests:
           - not_null
           - unique
+          - relationships:
+              arguments:
+                to: ref('int_geo__communes_idf')
+                field: code_commune
+      - name: population_totale
+        description: Population totale de la commune (RP 2021)
+        tests: [not_null]
       - name: part_25_39
         description: "Part des 25-39 ans dans la population totale (ratio 0-1)"
 
   - name: int_revenus__commune
     description: >
       Revenus et niveau de vie par commune IDF.
-      Croisement Filosofi + population.
+      Croisement Filosofi + population + loyers.
     columns:
       - name: code_commune
+        description: Code INSEE de la commune (5 caractères)
         tests:
           - not_null
           - unique
+          - relationships:
+              arguments:
+                to: ref('int_geo__communes_idf')
+                field: code_commune
       - name: niveau_vie_median
         description: Médiane du niveau de vie annuel (euros par UC)
+      - name: population_2021
+        description: Population municipale (recensement 2021)
+      - name: loyer_m2_median
+        description: Loyer prédit au m²/mois (EUR, carte des loyers 2025)
