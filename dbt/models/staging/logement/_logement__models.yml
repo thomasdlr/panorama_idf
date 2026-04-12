@@ -25,3 +25,21 @@ models:
         description: Annee (2016-2024)
       - name: taux_delinquance_pour_mille
         description: Total des faits constates pour 1000 habitants
+
+  - name: stg_logement__delinquance_detail
+    description: >
+      Delinquance par commune, annee et type de delit.
+      Detail par indicateur (cambriolages, violences, vols, etc.).
+      Exporte vers PostgreSQL pour les graphiques Metabase par type de delit.
+    columns:
+      - name: code_commune
+        description: Code INSEE
+        tests: [not_null]
+      - name: annee
+        description: Annee (2016-2024)
+      - name: type_delit
+        description: Libelle du type de delit (indicateur SSMSI)
+      - name: nb_faits
+        description: Nombre de faits constates
+      - name: taux_pour_mille
+        description: Taux pour 1000 habitants

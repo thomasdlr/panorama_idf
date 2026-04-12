@@ -75,34 +75,6 @@ models:
       - name: nb_faits_delinquance
         description: Nombre total de faits constates
 
-  - name: mart_immo__ranking_tension
-    description: >
-      Classement des communes IDF par indice de tension d'acces immobilier.
-      Indice composite (0-100) base sur :
-      - ratio achat/revenu (40%)
-      - ratio m2/revenu (30%)
-      - faible presence 25-39 ans (15%)
-      - taux de pauvrete (15%)
-
-      Outil de classement relatif, pas de mesure absolue.
-    columns:
-      - name: code_commune
-        tests: [not_null]
-      - name: annee
-        tests: [not_null]
-      - name: indice_tension
-        description: "Score 0-100. Plus eleve = commune plus tendue."
-      - name: rang_tension
-        description: "Rang parmi les communes IDF pour l'annee donnee (1 = plus tendue)."
-      - name: prix_m2_median
-        description: Prix median au m2 (EUR)
-      - name: niveau_vie_median
-        description: Mediane du niveau de vie annuel (EUR/UC)
-      - name: part_25_39
-        description: Part des 25-39 ans (ratio 0-1)
-      - name: taux_pauvrete_60
-        description: Proxy taux de pauvrete (part des menages non imposes)
-
   - name: mart_immo__synthese_zone
     description: >
       Synthese agregee par zone IDF (Paris, petite/grande couronne) x annee.

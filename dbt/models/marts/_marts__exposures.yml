@@ -1,20 +1,20 @@
 version: 2
 
 exposures:
-  - name: metabase_dashboard_immobilier_idf
+  - name: metabase_dashboard_panorama_idf
     type: dashboard
     maturity: medium
-    url: http://localhost:3000/dashboard/5
+    url: http://localhost:3000/dashboard/2
     description: >
-      Dashboard Metabase « Immobilier Ile-de-France ».
+      Dashboard Metabase « Panorama Ile-de-France ».
       3 onglets (IDF, Paris, Petite couronne) avec cartes choroplethe,
-      evolutions de prix, volumes de ventes et demographie.
-      Alimente par export PostgreSQL des marts.
+      prix, loyers, delinquance, demographie et revenus.
+      Alimente par export PostgreSQL des marts + stg_delinquance_detail.
     depends_on:
       - ref('mart_immo__accessibilite_commune')
-      - ref('mart_immo__ranking_tension')
       - ref('mart_immo__synthese_zone')
       - ref('mart_immo__evolution_prix')
+      - ref('stg_logement__delinquance_detail')
     owner:
       name: Thomas Delard
       email: contact@france-aujourdhui.fr
@@ -24,10 +24,9 @@ exposures:
     maturity: low
     description: >
       Site editorial « France Aujourd'hui » — articles, cartes et classements
-      sur l'accessibilite immobiliere en Ile-de-France.
+      sur l'immobilier et le cadre de vie en Ile-de-France.
     depends_on:
       - ref('mart_immo__accessibilite_commune')
-      - ref('mart_immo__ranking_tension')
       - ref('mart_immo__synthese_zone')
       - ref('mart_immo__evolution_prix')
     owner:
