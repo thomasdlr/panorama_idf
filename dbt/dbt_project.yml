@@ -1,8 +1,8 @@
-name: france_aujourdhui
+name: panorama_idf
 version: "0.1.0"
 config-version: 2
 
-profile: france_aujourdhui
+profile: panorama_idf
 
 model-paths: ["models"]
 analysis-paths: ["analyses"]
@@ -18,7 +18,7 @@ clean-targets:
   - dbt_packages
 
 seeds:
-  france_aujourdhui:
+  panorama_idf:
     zones_idf:
       +column_types:
         code_departement: varchar
@@ -34,7 +34,7 @@ vars:
   communes_nb_ventes_min: 5
 
 models:
-  france_aujourdhui:
+  panorama_idf:
     staging:
       +materialized: view
       +schema: staging

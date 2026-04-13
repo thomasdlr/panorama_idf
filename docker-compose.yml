@@ -1,9 +1,9 @@
 services:
   postgres:
     image: postgres:16-alpine
-    container_name: france_aujourdhui_pg
+    container_name: panorama_idf_pg
     environment:
-      POSTGRES_DB: france_aujourdhui
+      POSTGRES_DB: panorama_idf
       POSTGRES_USER: metabase
       POSTGRES_PASSWORD: metabase
     ports:
@@ -11,14 +11,14 @@ services:
     volumes:
       - pg-data:/var/lib/postgresql/data
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U metabase -d france_aujourdhui"]
+      test: ["CMD-SHELL", "pg_isready -U metabase -d panorama_idf"]
       interval: 5s
       timeout: 3s
       retries: 10
 
   metabase:
     image: metabase/metabase:latest
-    container_name: france_aujourdhui_metabase
+    container_name: panorama_idf_metabase
     depends_on:
       postgres:
         condition: service_healthy
@@ -39,7 +39,7 @@ services:
 
   geojson:
     image: nginx:alpine
-    container_name: france_aujourdhui_geojson
+    container_name: panorama_idf_geojson
     ports:
       - "8081:80"
     volumes:

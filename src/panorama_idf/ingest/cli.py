@@ -16,7 +16,7 @@ def main() -> None:
     force = "--force" in sys.argv
     v2 = "--v2" in sys.argv
 
-    console.print("[bold blue]═══ France Aujourd'hui — Ingestion ═══[/bold blue]\n")
+    console.print("[bold blue]═══ Panorama Ile-de-France — Ingestion ═══[/bold blue]\n")
 
     datasets = ALL_V1_DATASETS[:]
     if v2:

@@ -1,7 +1,7 @@
-france_aujourdhui:
+panorama_idf:
   target: dev
   outputs:
     dev:
       type: duckdb
-      path: "../data/france_aujourdhui.duckdb"
+      path: "../data/panorama_idf.duckdb"
       threads: 4

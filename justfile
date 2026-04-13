@@ -1,4 +1,4 @@
-# France Aujourd'hui — Commandes principales
+# Panorama Ile-de-France — Commandes principales
 # Lister les commandes : just --list
 
 # Installation des dépendances Python
@@ -46,7 +46,7 @@ export:
     cd dbt && uv run dbt run -s mart_immo__accessibilite_commune mart_immo__ranking_tension mart_immo__synthese_zone mart_immo__evolution_prix
     uv run python -c "\
     import duckdb; \
-    con = duckdb.connect('data/france_aujourdhui.duckdb'); \
+    con = duckdb.connect('data/panorama_idf.duckdb'); \
     tables = ['marts.mart_immo__accessibilite_commune', 'marts.mart_immo__ranking_tension', 'marts.mart_immo__synthese_zone', 'marts.mart_immo__evolution_prix']; \
     [con.execute(f\"COPY (SELECT * FROM {t}) TO 'data/processed/{t.split('.')[-1]}.csv' (HEADER, DELIMITER ',')\") or print(f'Exported {t.split(\".\")[-1]}.csv') for t in tables]; \
     con.close()"
@@ -62,4 +62,4 @@ metabase-down:
 # Nettoyage des artefacts dbt et du warehouse
 clean:
     cd dbt && uv run dbt clean
-    rm -f data/france_aujourdhui.duckdb data/france_aujourdhui.duckdb.wal
+    rm -f data/panorama_idf.duckdb data/panorama_idf.duckdb.wal

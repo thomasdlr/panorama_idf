@@ -1,0 +1,15 @@
+{
+    email {$EMAIL}
+}
+
+{$DOMAIN} {
+    encode gzip zstd
+    reverse_proxy metabase:3000
+
+    log {
+        output file /data/access.log {
+            roll_size 10mb
+            roll_keep 5
+        }
+    }
+}

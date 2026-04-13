@@ -1,6 +1,6 @@
 {% docs __overview__ %}
 
-# France Aujourd'hui — Panorama Ile-de-France
+# Panorama Ile-de-France
 
 Projet d'analyse du cadre de vie en Ile-de-France croisant immobilier, revenus, démographie, sécurité, éducation et mobilité.
 

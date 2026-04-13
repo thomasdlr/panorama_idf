@@ -13,7 +13,7 @@ from .config import DVF_ANNEES, IDF_DEPARTEMENTS, IDF_REGION, PROCESSED_DIR, RAW
 
 console = Console()
 
-DB_PATH = PROCESSED_DIR.parent / "france_aujourdhui.duckdb"
+DB_PATH = PROCESSED_DIR.parent / "panorama_idf.duckdb"
 
 
 def get_connection() -> duckdb.DuckDBPyConnection:
@@ -31,11 +31,13 @@ def load_cog_communes(con: duckdb.DuckDBPyConnection) -> None:
 
     console.print("[bold]Chargement COG communes…[/bold]")
     con.execute("DROP TABLE IF EXISTS raw_cog_communes")
-    con.execute(f"""
+    con.execute(
+        f"""
         CREATE TABLE raw_cog_communes AS
         SELECT *
         FROM read_csv('{src}', auto_detect=true, header=true, all_varchar=true)
-    """)
+    """
+    )
     count = con.execute("SELECT count(*) FROM raw_cog_communes").fetchone()[0]
     console.print(f"  [green]{count:,} communes chargées[/green]")
 
@@ -49,12 +51,14 @@ def load_stats_dvf(con: duckdb.DuckDBPyConnection) -> None:
 
     console.print("[bold]Chargement statistiques DVF…[/bold]")
     con.execute("DROP TABLE IF EXISTS raw_stats_dvf")
-    con.execute(f"""
+    con.execute(
+        f"""
         CREATE TABLE raw_stats_dvf AS
         SELECT *
         FROM read_csv('{src}', auto_detect=true, header=true, all_varchar=true,
                       quote='"')
-    """)
+    """
+    )
     count = con.execute("SELECT count(*) FROM raw_stats_dvf").fetchone()[0]
     console.print(f"  [green]{count:,} lignes chargées[/green]")
 
@@ -79,12 +83,14 @@ def load_dvf_plus(con: duckdb.DuckDBPyConnection) -> None:
     con.execute("DROP TABLE IF EXISTS raw_dvf_plus")
 
     files_str = ", ".join(f"'{f}'" for f in files)
-    con.execute(f"""
+    con.execute(
+        f"""
         CREATE TABLE raw_dvf_plus AS
         SELECT *
         FROM read_csv([{files_str}], auto_detect=true, header=true, all_varchar=true,
                       union_by_name=true, ignore_errors=true)
-    """)
+    """
+    )
     count = con.execute("SELECT count(*) FROM raw_dvf_plus").fetchone()[0]
     console.print(f"  [green]{count:,} mutations chargées[/green]")
 
@@ -98,12 +104,14 @@ def load_filosofi_communes(con: duckdb.DuckDBPyConnection) -> None:
 
     console.print("[bold]Chargement Filosofi communes…[/bold]")
     con.execute("DROP TABLE IF EXISTS raw_filosofi_communes")
-    con.execute(f"""
+    con.execute(
+        f"""
         CREATE TABLE raw_filosofi_communes AS
         SELECT *
         FROM read_csv('{src}', auto_detect=true, header=true, all_varchar=true,
                       delim=';')
-    """)
+    """
+    )
     count = con.execute("SELECT count(*) FROM raw_filosofi_communes").fetchone()[0]
     console.print(f"  [green]{count:,} communes chargées[/green]")
 
@@ -118,11 +126,13 @@ def load_population_communes(con: duckdb.DuckDBPyConnection) -> None:
     console.print("[bold]Chargement population communale…[/bold]")
     con.execute("INSTALL excel; LOAD excel;")
     con.execute("DROP TABLE IF EXISTS raw_population_communes")
-    con.execute(f"""
+    con.execute(
+        f"""
         CREATE TABLE raw_population_communes AS
         SELECT *
         FROM read_xlsx('{xlsx}', header=true, range='A6:AZ40000', all_varchar=true)
-    """)
+    """
+    )
     count = con.execute("SELECT count(*) FROM raw_population_communes").fetchone()[0]
     console.print(f"  [green]{count:,} lignes chargées[/green]")
 
@@ -136,12 +146,14 @@ def load_population_age(con: duckdb.DuckDBPyConnection) -> None:
 
     console.print("[bold]Chargement population par âge…[/bold]")
     con.execute("DROP TABLE IF EXISTS raw_population_age")
-    con.execute(f"""
+    con.execute(
+        f"""
         CREATE TABLE raw_population_age AS
         SELECT *
         FROM read_csv('{src}', auto_detect=true, header=true, all_varchar=true,
                       delim=';')
-    """)
+    """
+    )
     count = con.execute("SELECT count(*) FROM raw_population_age").fetchone()[0]
     console.print(f"  [green]{count:,} lignes chargées[/green]")
 
@@ -157,15 +169,20 @@ def load_loyers_communes(con: duckdb.DuckDBPyConnection) -> None:
     # Convert from latin1 to utf-8 if needed
     utf8_path = src.with_suffix(".utf8.csv")
     if not utf8_path.exists():
-        with open(src, encoding="latin-1") as f_in, open(utf8_path, "w", encoding="utf-8") as f_out:
+        with (
+            open(src, encoding="latin-1") as f_in,
+            open(utf8_path, "w", encoding="utf-8") as f_out,
+        ):
             f_out.write(f_in.read())
     con.execute("DROP TABLE IF EXISTS raw_loyers_communes")
-    con.execute(f"""
+    con.execute(
+        f"""
         CREATE TABLE raw_loyers_communes AS
         SELECT *
         FROM read_csv('{utf8_path}', header=true, all_varchar=true,
                       delim=';', quote='"')
-    """)
+    """
+    )
     count = con.execute("SELECT count(*) FROM raw_loyers_communes").fetchone()[0]
     console.print(f"  [green]{count:,} lignes chargées[/green]")
 
@@ -181,19 +198,23 @@ def load_delinquance_communes(con: duckdb.DuckDBPyConnection) -> None:
 
     console.print("[bold]Chargement délinquance communes…[/bold]")
     con.execute("DROP TABLE IF EXISTS raw_delinquance_communes")
-    con.execute(f"""
+    con.execute(
+        f"""
         CREATE TABLE raw_delinquance_communes AS
         SELECT *
         FROM read_csv('{src}', auto_detect=true, header=true, all_varchar=true,
                       delim=';', quote='"', null_padding=true)
-    """)
+    """
+    )
     count = con.execute("SELECT count(*) FROM raw_delinquance_communes").fetchone()[0]
     console.print(f"  [green]{count:,} lignes chargées[/green]")
 
 
 def load_all() -> None:
     """Charge toutes les données brutes dans DuckDB."""
-    console.print("\n[bold blue]═══ Chargement des données dans DuckDB ═══[/bold blue]\n")
+    console.print(
+        "\n[bold blue]═══ Chargement des données dans DuckDB ═══[/bold blue]\n"
+    )
     con = get_connection()
 
     load_cog_communes(con)
@@ -207,5 +228,7 @@ def load_all() -> None:
 
     # Liste les tables créées
     tables = con.execute("SHOW TABLES").fetchall()
-    console.print(f"\n[bold green]Tables dans DuckDB :[/bold green] {[t[0] for t in tables]}")
+    console.print(
+        f"\n[bold green]Tables dans DuckDB :[/bold green] {[t[0] for t in tables]}"
+    )
     con.close()

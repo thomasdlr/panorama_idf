@@ -27,6 +27,10 @@ dbt/target/
 dbt/dbt_packages/
 dbt/logs/
 
+# Logs (peuvent contenir des chemins locaux absolus)
+logs/
+*.log
+
 # Metabase
 metabase/
 
@@ -38,3 +42,6 @@ metabase/
 # OS
 .DS_Store
 Thumbs.db
+
+# Doc
+DEPLOYMENT.md

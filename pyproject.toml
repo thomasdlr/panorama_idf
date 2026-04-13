@@ -1,5 +1,5 @@
 [project]
-name = "france-aujourdhui"
+name = "panorama-idf"
 version = "0.1.0"
 description = "Analyse de l'accessibilité immobilière en Île-de-France à partir d'open data publics"
 readme = "README.md"
@@ -24,7 +24,7 @@ geo = [
 ]
 
 [project.scripts]
-ingest = "france_aujourdhui.ingest.cli:main"
+ingest = "panorama_idf.ingest.cli:main"
 
 [tool.uv]
 package = true
@@ -37,4 +37,4 @@ build-backend = "hatchling.build"
 dev = []
 
 [tool.hatch.build.targets.wheel]
-packages = ["src/france_aujourdhui"]
+packages = ["src/panorama_idf"]
