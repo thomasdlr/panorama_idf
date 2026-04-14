@@ -1595,17 +1595,20 @@ def main() -> None:
     print("\n[3/8] Génération GeoJSON")
     generate_geojson()
 
-    print("\n[4/11] Données Vélib")
-    export_velib_to_postgres()
-
-    print("\n[5/11] Pistes cyclables")
-    export_cycling_to_postgres()
-
-    print("\n[6/11] Stations métro et RER (IDFM)")
-    export_metro_to_postgres()
-
-    print("\n[7/11] Données diplômes INSEE")
-    export_diplomes_to_postgres()
+    # Exports externes (APIs tierces) : non-bloquants car les APIs peuvent
+    # refuser les IPs de datacenter ou etre temporairement indisponibles.
+    for step, label, fn in [
+        ("4/11", "Données Vélib", export_velib_to_postgres),
+        ("5/11", "Pistes cyclables", export_cycling_to_postgres),
+        ("6/11", "Stations métro et RER (IDFM)", export_metro_to_postgres),
+        ("7/11", "Données diplômes INSEE", export_diplomes_to_postgres),
+    ]:
+        print(f"\n[{step}] {label}")
+        try:
+            fn()
+        except Exception as e:
+            print(f"  ⚠ Echec ({type(e).__name__}: {e})")
+            print(f"  → Le dashboard sera créé sans ces données.")
 
     client = httpx.Client(base_url=METABASE_URL, timeout=30)
 
