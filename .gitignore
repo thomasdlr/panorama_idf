@@ -42,6 +42,3 @@ metabase/
 # OS
 .DS_Store
 Thumbs.db
-
-# Doc
-DEPLOYMENT.md
