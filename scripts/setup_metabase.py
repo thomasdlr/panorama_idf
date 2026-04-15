@@ -875,7 +875,7 @@ DELIN_LEGEND = """\
 - **Escroqueries** : escroqueries et fraudes aux moyens de paiement"""
 
 INTRO_TEXT = """\
-**Sources :** Immobilier DVF 2020-2025 (Cerema) · Revenus, démographie, éducation RP 2021 (INSEE) · Loyers 2025 (ANIL) · Délinquance 2016-2024 (SSMSI) · Mobilité (Vélib, IDFM, Paris OpenData)"""
+**Sources :** Immobilier DVF 2020-2025 (Cerema) · Revenus, démographie, éducation RP 2021 (INSEE) · Loyers 2025 (ANIL) · Délinquance 2016-2024 (SSMSI) · Mobilité (IDFM, Paris OpenData)"""
 
 # Remplacer par l'URL de votre formulaire Tally.so (https://tally.so)
 FEEDBACK_URL = "https://tally.so/r/7RV51A"
@@ -1323,17 +1323,6 @@ GROUP BY arrdt, categorie ORDER BY arrdt, taux_pour_mille DESC""",
         },
     )
 
-    c_paris_map_velib = make_card(
-        client,
-        db_id,
-        "Densité Vélib — Paris (stations/km²)",
-        "map",
-        """SELECT code_commune, nom_commune, stations_par_km2
-FROM velib_stations WHERE code_commune LIKE '751%'""",
-        "Stations Vélib par km². Source : Vélib Métropole (snapshot temps réel).",
-        map_viz("paris_arr", "stations_par_km2"),
-    )
-
     c_paris_map_cyclable = make_card(
         client,
         db_id,
@@ -1514,19 +1503,6 @@ GROUP BY categorie ORDER BY taux_pour_mille DESC""",
         template_tags=PC_INCLUDE_PARIS_TAG,
     )
 
-    c_pc_map_velib = make_card(
-        client,
-        db_id,
-        "Densité Vélib — Petite couronne (stations/km²)",
-        "map",
-        f"""SELECT code_commune, nom_commune, stations_par_km2
-FROM velib_stations
-WHERE {_pc_scope(code_field='code_commune')}""",
-        "Stations Vélib par km². Source : Vélib Métropole (snapshot temps réel).",
-        map_viz("petite_couronne_plus_paris", "stations_par_km2"),
-        template_tags=PC_INCLUDE_PARIS_TAG,
-    )
-
     c_pc_map_metro = make_card(
         client,
         db_id,
@@ -1689,8 +1665,7 @@ WHERE a.annee = {Y} AND {_pc_scope('a.zone_idf', 'a.code_departement')}""",
                 _card(c_paris_delin_cat, T2, 97, 0, 16, 10),
                 _txt(T2, 97, 16, 8, 10, DELIN_LEGEND),
                 _head(T2, 108, "Mobilité"),
-                _card(c_paris_map_metro, T2, 110, 0, 12, 10),
-                _card(c_paris_map_velib, T2, 110, 12, 12, 10),
+                _card(c_paris_map_metro, T2, 110, 0, 24, 10),
                 _card(c_paris_map_cyclable, T2, 120, 0, 24, 10),
                 _txt(T2, 132, 0, 24, 2, INTRO_TEXT),
                 _txt(T2, 135, 0, 24, 5, FEEDBACK_TEXT),
@@ -1710,15 +1685,14 @@ WHERE a.annee = {Y} AND {_pc_scope('a.zone_idf', 'a.code_departement')}""",
                 _card(c_pc_delin_cat, T3, 89, 0, 16, 8, _pc_param_mappings(c_pc_delin_cat)),
                 _txt(T3, 89, 16, 8, 8, DELIN_LEGEND),
                 _head(T3, 98, "Mobilité"),
-                _card(c_pc_map_metro, T3, 100, 0, 12, 10, _pc_param_mappings(c_pc_map_metro)),
-                _card(c_pc_map_velib, T3, 100, 12, 12, 10, _pc_param_mappings(c_pc_map_velib)),
+                _card(c_pc_map_metro, T3, 100, 0, 24, 10, _pc_param_mappings(c_pc_map_metro)),
                 _txt(T3, 112, 0, 24, 2, INTRO_TEXT),
                 _txt(T3, 115, 0, 24, 5, FEEDBACK_TEXT),
             ],
         },
     )
     r.raise_for_status()
-    print("  3 onglets, 45 cartes, 11 sections")
+    print("  3 onglets, 43 cartes, 11 sections")
     return dash_id
 
 
@@ -1730,22 +1704,21 @@ def main() -> None:
 
     ensure_geojson_nginx_config()
 
-    print("[1/7] Démarrage PostgreSQL + Metabase")
+    print("[1/10] Démarrage PostgreSQL + Metabase")
     start_services()
 
-    print("\n[2/8] Export des marts vers PostgreSQL")
+    print("\n[2/10] Export des marts vers PostgreSQL")
     export_marts_to_postgres()
 
-    print("\n[3/8] Génération GeoJSON")
+    print("\n[3/10] Génération GeoJSON")
     generate_geojson()
 
     # Exports externes (APIs tierces) : non-bloquants car les APIs peuvent
     # refuser les IPs de datacenter ou etre temporairement indisponibles.
     for step, label, fn in [
-        ("4/11", "Données Vélib", export_velib_to_postgres),
-        ("5/11", "Pistes cyclables", export_cycling_to_postgres),
-        ("6/11", "Stations métro et RER (IDFM)", export_metro_to_postgres),
-        ("7/11", "Données diplômes INSEE", export_diplomes_to_postgres),
+        ("4/10", "Pistes cyclables", export_cycling_to_postgres),
+        ("5/10", "Stations métro et RER (IDFM)", export_metro_to_postgres),
+        ("6/10", "Données diplômes INSEE", export_diplomes_to_postgres),
     ]:
         print(f"\n[{step}] {label}")
         try:
@@ -1756,10 +1729,10 @@ def main() -> None:
 
     client = httpx.Client(base_url=METABASE_URL, timeout=30)
 
-    print("\n[8/11] Connexion à Metabase")
+    print("\n[7/10] Connexion à Metabase")
     wait_for_metabase(client)
 
-    print("\n[9/11] Configuration admin")
+    print("\n[8/10] Configuration admin")
     session_id = setup_admin(client)
     client.headers["X-Metabase-Session"] = session_id
 
@@ -1770,10 +1743,10 @@ def main() -> None:
     except Exception:
         pass
 
-    print("\n[10/11] Base de données PostgreSQL")
+    print("\n[9/10] Base de données PostgreSQL")
     db_id = add_postgres_database(client)
 
-    print("\n[11/11] Cartes GeoJSON + dashboard")
+    print("\n[10/10] Cartes GeoJSON + dashboard")
     register_geojson_maps(client)
     dash_id = create_tabbed_dashboard(client, db_id)
 
