@@ -20,6 +20,7 @@ import httpx
 PROJECT_ROOT = Path(__file__).resolve().parent.parent
 MAIN_DB_PATH = PROJECT_ROOT / "data" / "panorama_idf.duckdb"
 GEOJSON_DIR = PROJECT_ROOT / "data" / "metabase"
+GEOJSON_NGINX_CONF = GEOJSON_DIR / "nginx.conf"
 
 
 def _load_dotenv(path: Path) -> None:
@@ -129,6 +130,30 @@ def start_services() -> None:
         time.sleep(2)
     print(" TIMEOUT")
     sys.exit(1)
+
+
+def ensure_geojson_nginx_config() -> None:
+    """Write the nginx config used to serve GeoJSON with the correct MIME type."""
+    GEOJSON_DIR.mkdir(parents=True, exist_ok=True)
+    GEOJSON_NGINX_CONF.write_text(
+        """server {
+    listen 80;
+    server_name _;
+    root /usr/share/nginx/html;
+
+    types {
+        application/geo+json geojson;
+        application/json json;
+    }
+
+    location / {
+        add_header Access-Control-Allow-Origin *;
+        try_files $uri =404;
+    }
+}
+""",
+        encoding="utf-8",
+    )
 
 
 def export_marts_to_postgres() -> None:
@@ -1594,6 +1619,8 @@ WHERE a.annee = {Y} AND a.zone_idf = 'Petite couronne'""",
 
 def main() -> None:
     print("\n═══ Setup Metabase — Panorama Ile-de-France ═══\n")
+
+    ensure_geojson_nginx_config()
 
     print("[1/7] Démarrage PostgreSQL + Metabase")
     start_services()
