@@ -4,6 +4,11 @@
 
 {$DOMAIN} {
     encode gzip zstd
+
+    handle_path /geojson/* {
+        reverse_proxy geojson:80
+    }
+
     reverse_proxy metabase:3000
 
     log {

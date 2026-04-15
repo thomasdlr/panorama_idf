@@ -67,6 +67,7 @@ services:
       - caddy-config:/config
     depends_on:
       - metabase
+      - geojson
     restart: unless-stopped
 
 volumes:

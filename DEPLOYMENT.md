@@ -167,6 +167,8 @@ curl -I https://tdelard.me   # doit répondre 200
 
 `scripts/setup_metabase.py` lit automatiquement les variables d'environnement (et `.env` à la racine) : `METABASE_URL`, `MB_ADMIN_EMAIL`, `MB_ADMIN_PASSWORD`, `POSTGRES_*`, `COMPOSE_FILE`.
 
+En prod, les GeoJSON sont servis publiquement par Caddy sous `https://<DOMAIN>/geojson/...`. Le script les enregistre automatiquement avec cette URL via la variable `DOMAIN` (ou `GEOJSON_BASE_URL` si tu veux forcer une autre base URL).
+
 En prod, les ports Metabase (3000) et Postgres (5480) sont bindés sur `127.0.0.1` uniquement — le script tourne sur le VPS et peut donc les joindre via `localhost`, mais ils ne sont pas exposés sur internet.
 
 Indique au script qu'on utilise la stack de prod (sinon il essaiera `docker-compose.yml`) :

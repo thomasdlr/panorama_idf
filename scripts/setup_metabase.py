@@ -59,6 +59,15 @@ PG_CONN = os.environ.get(
 # lance la bonne stack. Par defaut = docker-compose.yml (dev).
 COMPOSE_FILE = os.environ.get("COMPOSE_FILE", "docker-compose.yml")
 
+_geojson_base_url = os.environ.get("GEOJSON_BASE_URL")
+if not _geojson_base_url:
+    _domain = os.environ.get("DOMAIN", "").strip()
+    if _domain:
+        _geojson_base_url = f"https://{_domain}/geojson"
+    else:
+        _geojson_base_url = "http://localhost:8081"
+GEOJSON_BASE_URL = _geojson_base_url.rstrip("/")
+
 MART_TABLES = [
     "main_marts.mart_immo__accessibilite_commune",
     "main_marts.mart_immo__synthese_zone",
@@ -673,7 +682,7 @@ def register_geojson_maps(client: httpx.Client) -> None:
         filename = f"{key.replace('paris_arr', 'paris_arrondissements')}.geojson"
         maps[key] = {
             "name": name,
-            "url": f"http://geojson:80/{filename}",
+            "url": f"{GEOJSON_BASE_URL}/{filename}",
             "region_key": "code",
             "region_name": "nom",
         }
