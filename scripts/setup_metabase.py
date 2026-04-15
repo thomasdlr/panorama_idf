@@ -9,6 +9,7 @@ then configures Metabase with 3-tab dashboard (IDF, Paris, Petite couronne).
 
 import json
 import os
+import shutil
 import subprocess
 import sys
 import time
@@ -65,8 +66,10 @@ if not _geojson_base_url:
     _domain = os.environ.get("DOMAIN", "").strip()
     if _domain:
         _geojson_base_url = f"https://{_domain}/geojson"
+    elif COMPOSE_FILE == "docker-compose.yml":
+        _geojson_base_url = "http://geojson:80"
     else:
-        _geojson_base_url = "http://localhost:8081"
+        _geojson_base_url = f"{METABASE_URL.rstrip('/')}/geojson"
 GEOJSON_BASE_URL = _geojson_base_url.rstrip("/")
 
 MART_TABLES = [
@@ -98,6 +101,8 @@ LATEST_YEAR = 2025
 
 def _compose_cmd(*args: str) -> list[str]:
     """Build a `docker compose -f <file> ...` command using the configured compose file."""
+    if shutil.which("docker-compose"):
+        return ["docker-compose", "-f", COMPOSE_FILE, *args]
     return ["docker", "compose", "-f", COMPOSE_FILE, *args]
 
 
@@ -509,8 +514,61 @@ def generate_geojson() -> None:
     """Download and generate zone-specific GeoJSON files for maps."""
     GEOJSON_DIR.mkdir(parents=True, exist_ok=True)
 
-    if (GEOJSON_DIR / "idf_communes.geojson").exists():
+    required_files = [
+        "idf_communes.geojson",
+        "paris_arrondissements.geojson",
+        "petite_couronne.geojson",
+        "petite_couronne_plus_paris.geojson",
+        "grande_couronne.geojson",
+    ]
+    if all((GEOJSON_DIR / filename).exists() for filename in required_files):
         print("  GeoJSON déjà présent")
+        return
+
+    def write_geo(name, feats):
+        path = GEOJSON_DIR / f"{name}.geojson"
+        with open(path, "w") as f:
+            json.dump(
+                {"type": "FeatureCollection", "features": feats},
+                f,
+                separators=(",", ":"),
+            )
+        print(
+            f"  {name}.geojson — {len(feats)} features ({path.stat().st_size // 1024}KB)"
+        )
+
+    def write_zone_files(features):
+        write_geo("idf_communes", features)
+        write_geo(
+            "paris_arrondissements",
+            [f for f in features if f["properties"]["code"].startswith("751")],
+        )
+        write_geo(
+            "petite_couronne",
+            [f for f in features if f["properties"]["code"][:2] in ("92", "93", "94")],
+        )
+        write_geo(
+            "petite_couronne_plus_paris",
+            [
+                f
+                for f in features
+                if f["properties"]["code"].startswith("751")
+                or f["properties"]["code"][:2] in ("92", "93", "94")
+            ],
+        )
+        write_geo(
+            "grande_couronne",
+            [
+                f
+                for f in features
+                if f["properties"]["code"][:2] in ("77", "78", "91", "95")
+            ],
+        )
+
+    idf_path = GEOJSON_DIR / "idf_communes.geojson"
+    if idf_path.exists():
+        features = json.loads(idf_path.read_text(encoding="utf-8"))["features"]
+        write_zone_files(features)
         return
 
     def simplify_coords(coords, precision=4):
@@ -541,38 +599,7 @@ def generate_geojson() -> None:
         props = feat["properties"]
         feat["properties"] = {"code": props["code"], "nom": props["nom"]}
 
-    idf = {"type": "FeatureCollection", "features": features}
-
-    # Write zone-specific files
-    def write_geo(name, feats):
-        path = GEOJSON_DIR / f"{name}.geojson"
-        with open(path, "w") as f:
-            json.dump(
-                {"type": "FeatureCollection", "features": feats},
-                f,
-                separators=(",", ":"),
-            )
-        print(
-            f"  {name}.geojson — {len(feats)} features ({path.stat().st_size // 1024}KB)"
-        )
-
-    write_geo("idf_communes", features)
-    write_geo(
-        "paris_arrondissements",
-        [f for f in features if f["properties"]["code"].startswith("751")],
-    )
-    write_geo(
-        "petite_couronne",
-        [f for f in features if f["properties"]["code"][:2] in ("92", "93", "94")],
-    )
-    write_geo(
-        "grande_couronne",
-        [
-            f
-            for f in features
-            if f["properties"]["code"][:2] in ("77", "78", "91", "95")
-        ],
-    )
+    write_zone_files(features)
 
 
 def wait_for_metabase(client: httpx.Client, timeout: int = 180) -> None:
@@ -702,6 +729,7 @@ def register_geojson_maps(client: httpx.Client) -> None:
         ("idf_communes", "Communes Ile-de-France"),
         ("paris_arr", "Arrondissements Paris"),
         ("petite_couronne", "Communes Petite couronne"),
+        ("petite_couronne_plus_paris", "Petite couronne + Paris"),
         ("grande_couronne", "Communes Grande couronne"),
     ]:
         filename = f"{key.replace('paris_arr', 'paris_arrondissements')}.geojson"
@@ -712,7 +740,7 @@ def register_geojson_maps(client: httpx.Client) -> None:
             "region_name": "nom",
         }
     client.put("/api/setting/custom-geojson", json={"value": maps})
-    print("  4 cartes GeoJSON enregistrées")
+    print("  5 cartes GeoJSON enregistrées")
 
 
 # ── Card helper ─────────────────────────────────────────────────────
@@ -726,8 +754,12 @@ def make_card(
     query: str,
     desc: str = "",
     viz: dict | None = None,
+    template_tags: dict | None = None,
 ) -> int:
     """Create a Metabase card (question)."""
+    native_query = {"query": query}
+    if template_tags:
+        native_query["template-tags"] = template_tags
     r = client.post(
         "/api/card",
         json={
@@ -735,7 +767,7 @@ def make_card(
             "description": desc or None,
             "dataset_query": {
                 "type": "native",
-                "native": {"query": query},
+                "native": native_query,
                 "database": db_id,
             },
             "display": display,
@@ -767,6 +799,20 @@ def map_viz(region: str, metric: str, colors: list[str] | None = None) -> dict:
 # ── Dashboard creation ──────────────────────────────────────────────
 
 Y = str(LATEST_YEAR)
+PC_INCLUDE_PARIS_TAG = {
+    "include_paris": {
+        "id": "include_paris",
+        "name": "include_paris",
+        "display-name": "Inclure Paris",
+        "type": "boolean",
+    }
+}
+PC_INCLUDE_PARIS_PARAMETER = {
+    "id": "pc_include_paris",
+    "name": "Petite couronne : inclure Paris",
+    "slug": "pc_include_paris",
+    "type": "boolean/=",
+}
 
 DELIN_CATEGORIES = """\
 CASE
@@ -841,6 +887,30 @@ Ce dashboard évolue avec vos retours. Partagez vos idées, commentaires
 ou suggestions d'analyses complémentaires :
 
 **[→ Ouvrir le formulaire de suggestion]({FEEDBACK_URL})**"""
+
+
+def _pc_scope(
+    zone_field: str | None = None,
+    dept_field: str | None = None,
+    code_field: str | None = None,
+) -> str:
+    """Return the Petite couronne perimeter, with optional Paris inclusion."""
+    if zone_field and dept_field:
+        return (
+            f"({zone_field} = 'Petite couronne'"
+            f" [[ OR ({{{{include_paris}}}} AND {dept_field} = '75') ]])"
+        )
+    if dept_field:
+        return (
+            f"({dept_field} IN ('92', '93', '94')"
+            f" [[ OR ({{{{include_paris}}}} AND {dept_field} = '75') ]])"
+        )
+    if code_field:
+        return (
+            f"(left({code_field}, 2) IN ('92', '93', '94')"
+            f" [[ OR ({{{{include_paris}}}} AND {code_field} LIKE '751%') ]])"
+        )
+    raise ValueError("At least one field must be provided")
 
 
 def create_tabbed_dashboard(client: httpx.Client, db_id: int) -> int:
@@ -1331,9 +1401,12 @@ WHERE a.annee = {Y} AND a.code_commune LIKE '751%'""",
         db_id,
         "Prix au m2 — Petite couronne",
         "map",
-        f"SELECT code_commune, nom_commune, round(prix_m2_median::numeric) as prix_m2, nb_ventes\nFROM mart_immo__accessibilite_commune WHERE annee = {Y} AND zone_idf = 'Petite couronne'",
+        f"""SELECT code_commune, nom_commune, round(prix_m2_median::numeric) as prix_m2, nb_ventes
+FROM mart_immo__accessibilite_commune
+WHERE annee = {Y} AND {_pc_scope('zone_idf', 'code_departement')}""",
         f"Prix médian au m² par commune. Source : DVF {Y} (Cerema).",
-        map_viz("petite_couronne", "prix_m2"),
+        map_viz("petite_couronne_plus_paris", "prix_m2"),
+        template_tags=PC_INCLUDE_PARIS_TAG,
     )
 
     c_pc_map_age = make_card(
@@ -1341,9 +1414,12 @@ WHERE a.annee = {Y} AND a.code_commune LIKE '751%'""",
         db_id,
         "Part des 25-39 ans — Petite couronne",
         "map",
-        f"SELECT code_commune, nom_commune, round((part_25_39 * 100)::numeric, 1) as pct_25_39\nFROM mart_immo__accessibilite_commune WHERE annee = {Y} AND zone_idf = 'Petite couronne'",
+        f"""SELECT code_commune, nom_commune, round((part_25_39 * 100)::numeric, 1) as pct_25_39
+FROM mart_immo__accessibilite_commune
+WHERE annee = {Y} AND {_pc_scope('zone_idf', 'code_departement')}""",
         "Part des 25-39 ans dans la population. Source : RP 2021 (INSEE).",
-        map_viz("petite_couronne", "pct_25_39"),
+        map_viz("petite_couronne_plus_paris", "pct_25_39"),
+        template_tags=PC_INCLUDE_PARIS_TAG,
     )
 
     c_pc_evol = make_card(
@@ -1353,10 +1429,10 @@ WHERE a.annee = {Y} AND a.code_commune LIKE '751%'""",
         "line",
         f"""SELECT e.annee::text as annee, e.nom_commune, round(e.prix_m2_median::numeric) as prix_m2
 FROM mart_immo__evolution_prix e
-WHERE e.code_departement IN ('92','93','94')
+WHERE {_pc_scope(dept_field='e.code_departement')}
   AND e.code_commune IN (
     SELECT code_commune FROM mart_immo__accessibilite_commune
-    WHERE zone_idf = 'Petite couronne' AND annee = {Y}
+    WHERE annee = {Y} AND {_pc_scope('zone_idf', 'code_departement')}
     ORDER BY nb_ventes DESC LIMIT 10)
 ORDER BY annee, nom_commune""",
         "Top 10 communes par volume de ventes. Source : DVF 2020-2025 (Cerema).",
@@ -1365,6 +1441,7 @@ ORDER BY annee, nom_commune""",
             "graph.metrics": ["prix_m2"],
             "graph.y_axis.title_text": "EUR / m2",
         },
+        template_tags=PC_INCLUDE_PARIS_TAG,
     )
 
     c_pc_table = make_card(
@@ -1378,9 +1455,10 @@ ORDER BY annee, nom_commune""",
        round(niveau_vie_median::numeric) as revenu,
        round(ratio_achat_revenu_annuel::numeric, 1) as ratio_achat
 FROM mart_immo__accessibilite_commune
-WHERE zone_idf = 'Petite couronne' AND annee = {Y}
+WHERE annee = {Y} AND {_pc_scope('zone_idf', 'code_departement')}
 ORDER BY nb_ventes DESC LIMIT 20""",
         f"Classées par volume de ventes. Sources : DVF {Y}, RP 2021, Filosofi 2021.",
+        template_tags=PC_INCLUDE_PARIS_TAG,
     )
 
     c_pc_map_loyer = make_card(
@@ -1388,9 +1466,14 @@ ORDER BY nb_ventes DESC LIMIT 20""",
         db_id,
         "Loyer au m2 — Petite couronne",
         "map",
-        f"SELECT code_commune, nom_commune, round(loyer_m2_median::numeric, 1) as loyer_m2\nFROM mart_immo__accessibilite_commune WHERE annee = {Y} AND zone_idf = 'Petite couronne' AND loyer_m2_median IS NOT NULL",
+        f"""SELECT code_commune, nom_commune, round(loyer_m2_median::numeric, 1) as loyer_m2
+FROM mart_immo__accessibilite_commune
+WHERE annee = {Y}
+  AND {_pc_scope('zone_idf', 'code_departement')}
+  AND loyer_m2_median IS NOT NULL""",
         "Loyer prédit au m² (appartements). Source : Carte des loyers 2025 (ANIL).",
-        map_viz("petite_couronne", "loyer_m2"),
+        map_viz("petite_couronne_plus_paris", "loyer_m2"),
+        template_tags=PC_INCLUDE_PARIS_TAG,
     )
 
     c_pc_map_delin = make_card(
@@ -1403,9 +1486,11 @@ ORDER BY nb_ventes DESC LIMIT 20""",
 FROM mart_immo__accessibilite_commune
 WHERE annee = (SELECT max(annee) FROM mart_immo__accessibilite_commune
                WHERE taux_delinquance_pour_mille IS NOT NULL)
-  AND zone_idf = 'Petite couronne' AND taux_delinquance_pour_mille IS NOT NULL""",
+  AND {_pc_scope('zone_idf', 'code_departement')}
+  AND taux_delinquance_pour_mille IS NOT NULL""",
         "Faits pour 1000 habitants, dernière année disponible. Source : SSMSI / Min. Intérieur (2016-2024).",
-        map_viz("petite_couronne", "taux_delin"),
+        map_viz("petite_couronne_plus_paris", "taux_delin"),
+        template_tags=PC_INCLUDE_PARIS_TAG,
     )
 
     c_pc_delin_cat = make_card(
@@ -1418,7 +1503,7 @@ WHERE annee = (SELECT max(annee) FROM mart_immo__accessibilite_commune
 FROM stg_delinquance_detail d
 INNER JOIN mart_immo__accessibilite_commune a
     ON d.code_commune = a.code_commune AND d.annee = a.annee
-WHERE d.annee = 2024 AND a.zone_idf = 'Petite couronne'
+WHERE d.annee = 2024 AND {_pc_scope('a.zone_idf', 'a.code_departement')}
 GROUP BY categorie ORDER BY taux_pour_mille DESC""",
         "Source : SSMSI / Min. Intérieur (année 2024).",
         viz={
@@ -1426,6 +1511,7 @@ GROUP BY categorie ORDER BY taux_pour_mille DESC""",
             "graph.metrics": ["taux_pour_mille"],
             "graph.y_axis.title_text": "Faits / 1000 hab.",
         },
+        template_tags=PC_INCLUDE_PARIS_TAG,
     )
 
     c_pc_map_velib = make_card(
@@ -1433,10 +1519,12 @@ GROUP BY categorie ORDER BY taux_pour_mille DESC""",
         db_id,
         "Densité Vélib — Petite couronne (stations/km²)",
         "map",
-        """SELECT code_commune, nom_commune, stations_par_km2
-FROM velib_stations WHERE left(code_commune, 2) IN ('92', '93', '94')""",
+        f"""SELECT code_commune, nom_commune, stations_par_km2
+FROM velib_stations
+WHERE {_pc_scope(code_field='code_commune')}""",
         "Stations Vélib par km². Source : Vélib Métropole (snapshot temps réel).",
-        map_viz("petite_couronne", "stations_par_km2"),
+        map_viz("petite_couronne_plus_paris", "stations_par_km2"),
+        template_tags=PC_INCLUDE_PARIS_TAG,
     )
 
     c_pc_map_metro = make_card(
@@ -1444,10 +1532,12 @@ FROM velib_stations WHERE left(code_commune, 2) IN ('92', '93', '94')""",
         db_id,
         "Densité métro + RER — Petite couronne (stations/km²)",
         "map",
-        """SELECT code_commune, nom_commune, stations_par_km2
-FROM metro_stations WHERE left(code_commune, 2) IN ('92', '93', '94')""",
+        f"""SELECT code_commune, nom_commune, stations_par_km2
+FROM metro_stations
+WHERE {_pc_scope(code_field='code_commune')}""",
         "Stations métro et RER par km². Source : IDFM Open Data.",
-        map_viz("petite_couronne", "stations_par_km2"),
+        map_viz("petite_couronne_plus_paris", "stations_par_km2"),
+        template_tags=PC_INCLUDE_PARIS_TAG,
     )
 
     c_pc_map_60plus = make_card(
@@ -1458,9 +1548,12 @@ FROM metro_stations WHERE left(code_commune, 2) IN ('92', '93', '94')""",
         f"""SELECT code_commune, nom_commune,
        round((part_60_plus * 100)::numeric, 1) as pct_60_plus
 FROM mart_immo__accessibilite_commune
-WHERE annee = {Y} AND zone_idf = 'Petite couronne' AND part_60_plus IS NOT NULL""",
+WHERE annee = {Y}
+  AND {_pc_scope('zone_idf', 'code_departement')}
+  AND part_60_plus IS NOT NULL""",
         "Part des 60 ans et plus dans la population. Source : RP 2021 (INSEE).",
-        map_viz("petite_couronne", "pct_60_plus"),
+        map_viz("petite_couronne_plus_paris", "pct_60_plus"),
+        template_tags=PC_INCLUDE_PARIS_TAG,
     )
 
     c_pc_map_diplome = make_card(
@@ -1471,9 +1564,10 @@ WHERE annee = {Y} AND zone_idf = 'Petite couronne' AND part_60_plus IS NOT NULL"
         f"""SELECT a.code_commune, a.nom_commune, d.part_etudes_sup
 FROM mart_immo__accessibilite_commune a
 JOIN diplomes_communes d ON a.code_commune = d.code_commune
-WHERE a.annee = {Y} AND a.zone_idf = 'Petite couronne'""",
+WHERE a.annee = {Y} AND {_pc_scope('a.zone_idf', 'a.code_departement')}""",
         "Part de la population 15+ ayant un diplôme bac+2 et plus. Source : RP 2021 (INSEE).",
-        map_viz("petite_couronne", "part_etudes_sup"),
+        map_viz("petite_couronne_plus_paris", "part_etudes_sup"),
+        template_tags=PC_INCLUDE_PARIS_TAG,
     )
 
     c_pc_map_sans_diplome = make_card(
@@ -1484,9 +1578,10 @@ WHERE a.annee = {Y} AND a.zone_idf = 'Petite couronne'""",
         f"""SELECT a.code_commune, a.nom_commune, d.part_sans_diplome
 FROM mart_immo__accessibilite_commune a
 JOIN diplomes_communes d ON a.code_commune = d.code_commune
-WHERE a.annee = {Y} AND a.zone_idf = 'Petite couronne'""",
+WHERE a.annee = {Y} AND {_pc_scope('a.zone_idf', 'a.code_departement')}""",
         "Part de la population 15+ sans diplôme ou avec CEP. Source : RP 2021 (INSEE).",
-        map_viz("petite_couronne", "part_sans_diplome"),
+        map_viz("petite_couronne_plus_paris", "part_sans_diplome"),
+        template_tags=PC_INCLUDE_PARIS_TAG,
     )
 
     # ── Create dashboard if needed ──
@@ -1507,10 +1602,10 @@ WHERE a.annee = {Y} AND a.zone_idf = 'Petite couronne'""",
     T1, T2, T3 = -1, -2, -3  # tab IDs
     n = 0  # auto-increment dashcard IDs
 
-    def _card(card_id, tab, row, col, sx, sy):
+    def _card(card_id, tab, row, col, sx, sy, parameter_mappings=None):
         nonlocal n
         n -= 1
-        return {
+        dashcard = {
             "id": n,
             "card_id": card_id,
             "dashboard_tab_id": tab,
@@ -1519,6 +1614,18 @@ WHERE a.annee = {Y} AND a.zone_idf = 'Petite couronne'""",
             "size_x": sx,
             "size_y": sy,
         }
+        if parameter_mappings:
+            dashcard["parameter_mappings"] = parameter_mappings
+        return dashcard
+
+    def _pc_param_mappings(card_id):
+        return [
+            {
+                "card_id": card_id,
+                "parameter_id": PC_INCLUDE_PARIS_PARAMETER["id"],
+                "target": ["variable", ["template-tag", "include_paris"]],
+            }
+        ]
 
     def _head(tab, row, text):
         nonlocal n
@@ -1538,6 +1645,7 @@ WHERE a.annee = {Y} AND a.zone_idf = 'Petite couronne'""",
                 {"id": T2, "name": "Paris"},
                 {"id": T3, "name": "Petite couronne"},
             ],
+            "parameters": [PC_INCLUDE_PARIS_PARAMETER],
             "dashcards": [
                 # ═══ IDF ═══
                 _head(T1, 0, "Logement"),
@@ -1588,22 +1696,22 @@ WHERE a.annee = {Y} AND a.zone_idf = 'Petite couronne'""",
                 _txt(T2, 135, 0, 24, 5, FEEDBACK_TEXT),
                 # ═══ Petite couronne ═══
                 _head(T3, 0, "Logement"),
-                _card(c_pc_map_prix, T3, 2, 0, 24, 12),
-                _card(c_pc_map_loyer, T3, 14, 0, 24, 10),
-                _card(c_pc_evol, T3, 24, 0, 24, 9),
-                _card(c_pc_table, T3, 33, 0, 24, 8),
+                _card(c_pc_map_prix, T3, 2, 0, 24, 12, _pc_param_mappings(c_pc_map_prix)),
+                _card(c_pc_map_loyer, T3, 14, 0, 24, 10, _pc_param_mappings(c_pc_map_loyer)),
+                _card(c_pc_evol, T3, 24, 0, 24, 9, _pc_param_mappings(c_pc_evol)),
+                _card(c_pc_table, T3, 33, 0, 24, 8, _pc_param_mappings(c_pc_table)),
                 _head(T3, 42, "Démographie"),
-                _card(c_pc_map_age, T3, 44, 0, 24, 12),
-                _card(c_pc_map_diplome, T3, 56, 0, 12, 10),
-                _card(c_pc_map_sans_diplome, T3, 56, 12, 12, 10),
-                _card(c_pc_map_60plus, T3, 66, 0, 24, 10),
+                _card(c_pc_map_age, T3, 44, 0, 24, 12, _pc_param_mappings(c_pc_map_age)),
+                _card(c_pc_map_diplome, T3, 56, 0, 12, 10, _pc_param_mappings(c_pc_map_diplome)),
+                _card(c_pc_map_sans_diplome, T3, 56, 12, 12, 10, _pc_param_mappings(c_pc_map_sans_diplome)),
+                _card(c_pc_map_60plus, T3, 66, 0, 24, 10, _pc_param_mappings(c_pc_map_60plus)),
                 _head(T3, 77, "Sécurité"),
-                _card(c_pc_map_delin, T3, 79, 0, 24, 10),
-                _card(c_pc_delin_cat, T3, 89, 0, 16, 8),
+                _card(c_pc_map_delin, T3, 79, 0, 24, 10, _pc_param_mappings(c_pc_map_delin)),
+                _card(c_pc_delin_cat, T3, 89, 0, 16, 8, _pc_param_mappings(c_pc_delin_cat)),
                 _txt(T3, 89, 16, 8, 8, DELIN_LEGEND),
                 _head(T3, 98, "Mobilité"),
-                _card(c_pc_map_metro, T3, 100, 0, 12, 10),
-                _card(c_pc_map_velib, T3, 100, 12, 12, 10),
+                _card(c_pc_map_metro, T3, 100, 0, 12, 10, _pc_param_mappings(c_pc_map_metro)),
+                _card(c_pc_map_velib, T3, 100, 12, 12, 10, _pc_param_mappings(c_pc_map_velib)),
                 _txt(T3, 112, 0, 24, 2, INTRO_TEXT),
                 _txt(T3, 115, 0, 24, 5, FEEDBACK_TEXT),
             ],
