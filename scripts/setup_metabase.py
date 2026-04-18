@@ -773,9 +773,11 @@ def setup_admin(client: httpx.Client) -> str:
     )
     # Metabase renvoie 400 ou 403 si le setup-token persiste mais que l'admin
     # est déjà créé (container restart, reuse de volume, etc.). Dans ces cas
-    # on bascule sur un login classique.
+    # on bascule sur un login classique. On logue le body pour diagnostiquer
+    # quand les deux échouent (ex: password policy).
     if r.status_code in (400, 403):
-        print(f"  Setup déjà fait (HTTP {r.status_code}), connexion…")
+        print(f"  Setup déjà fait (HTTP {r.status_code}) — body: {r.text[:300]}")
+        print("  Tentative de connexion avec les credentials fournis…")
         r = client.post(
             "/api/session",
             json={
@@ -783,6 +785,8 @@ def setup_admin(client: httpx.Client) -> str:
                 "password": ADMIN_PASSWORD,
             },
         )
+        if r.status_code != 200:
+            print(f"  Échec login (HTTP {r.status_code}) — body: {r.text[:300]}")
         r.raise_for_status()
         return r.json()["id"]
     r.raise_for_status()
