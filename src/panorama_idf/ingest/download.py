@@ -13,6 +13,17 @@ from .config import RAW_DIR, DatasetConfig
 
 console = Console()
 
+# UA navigateur : le CDN INSEE renvoie parfois 500 aux UA "bot" (httpx default).
+DEFAULT_HEADERS = {
+    "User-Agent": (
+        "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) "
+        "AppleWebKit/537.36 (KHTML, like Gecko) "
+        "Chrome/131.0 Safari/537.36"
+    ),
+    "Accept": "*/*",
+    "Accept-Language": "fr-FR,fr;q=0.9,en;q=0.8",
+}
+
 
 def download_file(url: str, dest: Path, force: bool = False) -> Path:
     """Télécharge un fichier si non déjà présent (ou si force=True)."""
@@ -29,7 +40,13 @@ def download_file(url: str, dest: Path, force: bool = False) -> Path:
     ) as progress:
         task = progress.add_task(f"Téléchargement {dest.name}…", total=None)
 
-        with httpx.stream("GET", url, follow_redirects=True, timeout=120.0) as resp:
+        with httpx.stream(
+            "GET",
+            url,
+            follow_redirects=True,
+            timeout=120.0,
+            headers=DEFAULT_HEADERS,
+        ) as resp:
             resp.raise_for_status()
             with open(dest, "wb") as f:
                 for chunk in resp.iter_bytes(chunk_size=65536):
