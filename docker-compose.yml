@@ -38,8 +38,8 @@ services:
     depends_on:
       postgres:
         condition: service_healthy
-    ports:
-      - "127.0.0.1:3000:3000"
+    expose:
+      - "3000"
     environment:
       MB_DB_TYPE: postgres
       MB_DB_DBNAME: metabase_app
@@ -100,7 +100,7 @@ services:
     image: caddy:2-alpine
     container_name: panorama_idf_caddy
     ports:
-      - "3000:3000"
+      - "127.0.0.1:3000:3000"
     volumes:
       - ./Caddyfile.local:/etc/caddy/Caddyfile:ro
       - caddy-data:/data

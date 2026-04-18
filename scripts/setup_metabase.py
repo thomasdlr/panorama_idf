@@ -289,7 +289,7 @@ def export_velib_to_postgres() -> None:
             JOIN geo g ON ST_Contains(g.geom, ST_Point(s.lon, s.lat))
             GROUP BY g.code, g.nom
         )
-        SELECT c.code_commune, c.nom_commune,
+        SELECT c.code_commune, c.nom_commune as nom_commune,
                c.nb_stations, c.capacite_totale,
                round(a.area_km2::numeric, 2) as superficie_km2,
                round((c.nb_stations / a.area_km2)::numeric, 1) as stations_par_km2
@@ -500,7 +500,7 @@ def export_metro_to_postgres() -> None:
             JOIN geo g ON ST_Contains(g.geom, ST_Point(s.lon, s.lat))
             GROUP BY g.code, g.nom
         )
-        SELECT c.code_commune, c.nom_commune,
+        SELECT c.code_commune, c.nom_commune as nom_commune,
                c.nb_stations, c.nb_lignes_accessibles,
                round(a.area_km2::numeric, 2) as superficie_km2,
                round((c.nb_stations / a.area_km2)::numeric, 1) as stations_par_km2
@@ -568,6 +568,7 @@ def generate_geojson() -> None:
 
     required_files = [
         "idf_communes.geojson",
+        "idf_departements.geojson",
         "paris_arrondissements.geojson",
         "petite_couronne.geojson",
         "petite_couronne_plus_paris.geojson",
@@ -617,16 +618,66 @@ def generate_geojson() -> None:
             ],
         )
 
-    idf_path = GEOJSON_DIR / "idf_communes.geojson"
-    if idf_path.exists():
-        features = json.loads(idf_path.read_text(encoding="utf-8"))["features"]
-        write_zone_files(features)
-        return
-
     def simplify_coords(coords, precision=4):
         if isinstance(coords[0], (int, float)):
             return [round(c, precision) for c in coords]
         return [simplify_coords(c, precision) for c in coords]
+
+    def write_departements():
+        dep_path = GEOJSON_DIR / "idf_departements.geojson"
+        if dep_path.exists():
+            return
+        dep_names = {
+            "75": "Paris",
+            "77": "Seine-et-Marne",
+            "78": "Yvelines",
+            "91": "Essonne",
+            "92": "Hauts-de-Seine",
+            "93": "Seine-Saint-Denis",
+            "94": "Val-de-Marne",
+            "95": "Val-d'Oise",
+        }
+        communes_path = str(GEOJSON_DIR / "idf_communes.geojson")
+        con = duckdb.connect()
+        con.execute("INSTALL spatial; LOAD spatial;")
+        # Buffer légèrement avant l'union pour fermer les slivers entre communes
+        # voisines (sans quoi on voit toutes les limites communales), puis on
+        # rétracte et on simplifie le résultat.
+        con.execute(
+            f"CREATE TABLE c AS SELECT substr(code, 1, 2) as code_dep, "
+            f"ST_Buffer(geom, 0.0005) as geom FROM ST_Read('{communes_path}')"
+        )
+        dep_features = []
+        for code_dep in sorted(dep_names):
+            geom_json = con.execute(
+                "SELECT ST_AsGeoJSON(ST_Simplify("
+                "  ST_Buffer(ST_Union_Agg(geom), -0.0005), 0.002)) "
+                "FROM c WHERE code_dep = ?",
+                [code_dep],
+            ).fetchone()[0]
+            if not geom_json:
+                continue
+            geom = json.loads(geom_json)
+            geom["coordinates"] = simplify_coords(geom["coordinates"])
+            dep_features.append(
+                {
+                    "type": "Feature",
+                    "geometry": geom,
+                    "properties": {
+                        "code": code_dep,
+                        "nom": dep_names[code_dep],
+                    },
+                }
+            )
+        con.close()
+        write_geo("idf_departements", dep_features)
+
+    idf_path = GEOJSON_DIR / "idf_communes.geojson"
+    if idf_path.exists():
+        features = json.loads(idf_path.read_text(encoding="utf-8"))["features"]
+        write_zone_files(features)
+        write_departements()
+        return
 
     # Download IDF communes + Paris arrondissements
     communes = httpx.get(
@@ -652,6 +703,7 @@ def generate_geojson() -> None:
         feat["properties"] = {"code": props["code"], "nom": props["nom"]}
 
     write_zone_files(features)
+    write_departements()
 
 
 def wait_for_metabase(client: httpx.Client, timeout: int = 180) -> None:
@@ -698,10 +750,10 @@ def setup_admin(client: httpx.Client) -> str:
                 "password": ADMIN_PASSWORD,
                 "first_name": "Admin",
                 "last_name": "Panorama IDF",
-                "site_name": "Panorama Ile-de-France",
+                "site_name": "Panorama Île-de-France",
             },
             "prefs": {
-                "site_name": "Panorama Ile-de-France",
+                "site_name": "Panorama Île-de-France",
                 "site_locale": "fr",
                 "allow_tracking": False,
             },
@@ -724,8 +776,8 @@ def setup_admin(client: httpx.Client) -> str:
 
 def add_postgres_database(client: httpx.Client) -> int:
     """Add PostgreSQL database connection to Metabase (or rename legacy entry)."""
-    target_name = "Panorama Ile-de-France"
-    legacy_names = {"France Aujourd'hui"}  # migration douce des anciens setups
+    target_name = "Panorama Île-de-France"
+    legacy_names = {"France Aujourd'hui", "Panorama Ile-de-France"}  # migration douce
 
     r = client.get("/api/database")
     dbs = r.json().get("data", [])
@@ -778,7 +830,8 @@ def register_geojson_maps(client: httpx.Client) -> None:
     r = client.get("/api/setting/custom-geojson")
     maps = r.json()
     for key, name in [
-        ("idf_communes", "Communes Ile-de-France"),
+        ("idf_communes", "Communes Île-de-France"),
+        ("idf_departements", "Départements Île-de-France"),
         ("paris_arr", "Arrondissements Paris"),
         ("petite_couronne", "Communes Petite couronne"),
         ("petite_couronne_plus_paris", "Petite couronne + Paris"),
@@ -792,11 +845,10 @@ def register_geojson_maps(client: httpx.Client) -> None:
             "region_name": "nom",
         }
     client.put("/api/setting/custom-geojson", json={"value": maps})
-    print("  5 cartes GeoJSON enregistrées")
+    print("  6 cartes GeoJSON enregistrées")
 
 
 # ── Card helper ─────────────────────────────────────────────────────
-
 
 def make_card(
     client: httpx.Client,
@@ -836,11 +888,16 @@ def make_card(
 CLR_ALT = ["#E8F5E9", "#C8E6C9", "#A5D6A7", "#81C784", "#66BB6A"]
 
 
-def map_viz(region: str, metric: str, colors: list[str] | None = None) -> dict:
+def map_viz(
+    region: str,
+    metric: str,
+    colors: list[str] | None = None,
+    dimension: str = "Code commune",
+) -> dict:
     viz = {
         "map.type": "region",
         "map.region": region,
-        "map.dimension": "code_commune",
+        "map.dimension": dimension,
         "map.metric": metric,
     }
     if colors:
@@ -972,6 +1029,7 @@ def create_tabbed_dashboard(client: httpx.Client, db_id: int) -> int:
     # On utilise /api/dashboard/ plutot que /api/search qui depend d'un
     # index pas toujours initialise sur une instance Metabase fraiche.
     dash_id = None
+    dashboard_names = ("Panorama Île-de-France", "Panorama Ile-de-France")
     r = client.get("/api/dashboard/")
     items = r.json() if r.status_code == 200 else []
     if not isinstance(items, list):
@@ -979,7 +1037,7 @@ def create_tabbed_dashboard(client: httpx.Client, db_id: int) -> int:
     for item in items:
         if not isinstance(item, dict) or item.get("archived"):
             continue
-        if dash_id is None and item.get("name") == "Panorama Ile-de-France":
+        if dash_id is None and item.get("name") in dashboard_names:
             dash_id = item["id"]
             print(f"  Dashboard existant (id={dash_id}), mise a jour…")
         else:
@@ -990,64 +1048,80 @@ def create_tabbed_dashboard(client: httpx.Client, db_id: int) -> int:
     c_idf_map_prix = make_card(
         client,
         db_id,
-        "Prix au m2 — Ile-de-France",
+        "Prix au m² — Île-de-France",
         "map",
-        f"SELECT code_commune, nom_commune, round(prix_m2_median::numeric) as prix_m2, nb_ventes, zone_idf\nFROM mart_immo__accessibilite_commune WHERE annee = {Y}",
-        f"Prix médian au m² par commune. Source : DVF {Y} (Cerema).",
-        map_viz("idf_communes", "prix_m2"),
+        f"""SELECT code_departement AS "Département",
+       round((sum(prix_m2_median * nb_ventes) / nullif(sum(nb_ventes), 0))::numeric) AS "Prix au m² (€)",
+       sum(nb_ventes)::integer AS "Nombre de ventes"
+FROM mart_immo__accessibilite_commune
+WHERE annee = {Y}
+GROUP BY "Département" ORDER BY "Département"
+""",
+        f"Prix médian au m² par département (pondéré par le volume de ventes). Source : DVF {Y} (Cerema).",
+        map_viz("idf_departements", "Prix au m² (€)", dimension="Département"),
     )
 
     c_idf_map_age = make_card(
         client,
         db_id,
-        "Part des 25-39 ans — Ile-de-France",
+        "Part des 25–39 ans — Île-de-France",
         "map",
-        f"SELECT code_commune, nom_commune, round((part_25_39 * 100)::numeric, 1) as pct_25_39, zone_idf\nFROM mart_immo__accessibilite_commune WHERE annee = {Y}",
-        "Part des 25-39 ans dans la population. Source : RP 2021 (INSEE).",
-        map_viz("idf_communes", "pct_25_39"),
+        f"""SELECT code_departement AS "Département",
+       round((sum(part_25_39 * population_2021) / nullif(sum(population_2021), 0) * 100)::numeric, 1) AS "Part des 25–39 ans (%)"
+FROM mart_immo__accessibilite_commune
+WHERE annee = {Y} AND part_25_39 IS NOT NULL
+GROUP BY "Département" ORDER BY "Département"
+""",
+        "Part des 25–39 ans dans la population, par département. Source : RP 2021 (INSEE).",
+        map_viz("idf_departements", "Part des 25–39 ans (%)", dimension="Département"),
     )
 
     c_idf_synthese = make_card(
         client,
         db_id,
-        "Synthese par zone",
+        "Synthèse par zone",
         "table",
-        """SELECT zone_idf, annee::text as annee, nb_communes, nb_ventes_total,
-       round(prix_m2_median_pondere::numeric) as prix_m2,
-       round(niveau_vie_median_pondere::numeric) as niveau_vie,
-       round(ratio_achat_revenu_pondere::numeric, 1) as ratio_achat,
-       round((part_25_39_ponderee * 100)::numeric, 1) as pct_25_39
-FROM mart_immo__synthese_zone ORDER BY annee DESC, zone_idf""",
+        """SELECT zone_idf, annee::text AS "Année", nb_communes, nb_ventes_total,
+       round(prix_m2_median_pondere::numeric) AS "Prix au m² (€)",
+       round(niveau_vie_median_pondere::numeric) AS "Niveau de vie médian (€)",
+       round(ratio_achat_revenu_pondere::numeric, 1) AS "Ratio prix / revenu (années)",
+       round((part_25_39_ponderee * 100)::numeric, 1) AS "Part des 25–39 ans (%)"
+FROM mart_immo__synthese_zone ORDER BY "Année" DESC, "Zone"
+""",
         "Agrégats pondérés par zone. Prix DVF 2020-2025, revenus Filosofi 2021, démographie RP 2021.",
     )
 
     c_idf_prix = make_card(
         client,
         db_id,
-        "Evolution prix au m2 par zone",
+        "Évolution du prix au m² par zone",
         "line",
-        """SELECT annee::text as annee, zone_idf, round(prix_m2_median_pondere::numeric) as prix_m2
-FROM mart_immo__synthese_zone ORDER BY annee, zone_idf""",
+        """SELECT annee::text AS "Année", zone_idf AS "Zone", round(prix_m2_median_pondere::numeric) AS "Prix au m² (€)"
+FROM mart_immo__synthese_zone ORDER BY "Année", "Zone"
+""",
         "Source : DVF 2020-2025 (Cerema).",
         viz={
-            "graph.dimensions": ["annee", "zone_idf"],
-            "graph.metrics": ["prix_m2"],
-            "graph.y_axis.title_text": "EUR / m2",
+            "graph.dimensions": ["Année", "Zone"],
+            "graph.metrics": ["Prix au m² (€)"],
+            "graph.x_axis.title_text": "Année",
+            "graph.y_axis.title_text": "€ / m²",
         },
     )
 
     c_idf_volume = make_card(
         client,
         db_id,
-        "Volume de ventes par zone",
+        "Nombre de ventes par zone",
         "bar",
-        """SELECT annee::text as annee, zone_idf, nb_ventes_total
-FROM mart_immo__synthese_zone ORDER BY annee, zone_idf""",
+        """SELECT annee::text AS "Année", zone_idf AS "Zone", nb_ventes_total
+FROM mart_immo__synthese_zone ORDER BY "Année", "Zone"
+""",
         "Source : DVF 2020-2025 (Cerema).",
         viz={
-            "graph.dimensions": ["annee", "zone_idf"],
-            "graph.metrics": ["nb_ventes_total"],
-            "graph.y_axis.title_text": "Ventes",
+            "graph.dimensions": ["Année", "Zone"],
+            "graph.metrics": ["Nombre de ventes"],
+            "graph.x_axis.title_text": "Année",
+            "graph.y_axis.title_text": "Nombre de ventes",
             "stackable.stack_type": "stacked",
         },
     )
@@ -1055,240 +1129,271 @@ FROM mart_immo__synthese_zone ORDER BY annee, zone_idf""",
     c_idf_scatter = make_card(
         client,
         db_id,
-        f"Jeunes adultes vs prix au m2 ({Y})",
+        f"Part des 25–39 ans vs prix au m² par département ({Y})",
         "scatter",
-        f"""SELECT nom_commune, zone_idf, prix_m2_median,
-       round((part_25_39 * 100)::numeric, 1) as pct_25_39
+        f"""SELECT code_departement AS "Département",
+       round((sum(prix_m2_median * nb_ventes) / nullif(sum(nb_ventes), 0))::numeric) AS "Prix au m² (€)",
+       round((sum(part_25_39 * population_2021) / nullif(sum(population_2021), 0) * 100)::numeric, 1) AS "Part des 25–39 ans (%)"
 FROM mart_immo__accessibilite_commune
 WHERE annee = {Y} AND part_25_39 IS NOT NULL
-ORDER BY prix_m2_median DESC""",
-        f"Chaque point = une commune. Sources : prix DVF {Y} (Cerema), démographie RP 2021 (INSEE).",
+GROUP BY "Département" ORDER BY "Département"
+""",
+        f"Chaque point = un département. Sources : prix DVF {Y} (Cerema), démographie RP 2021 (INSEE).",
         viz={
-            "graph.dimensions": ["prix_m2_median"],
-            "graph.metrics": ["pct_25_39"],
-            "graph.x_axis.title_text": "Prix m2 (EUR)",
-            "graph.y_axis.title_text": "% 25-39 ans",
+            "graph.dimensions": ["Prix au m² (€)", "Département"],
+            "graph.metrics": ["Part des 25–39 ans (%)"],
+            "graph.x_axis.title_text": "Prix au m² (€)",
+            "graph.y_axis.title_text": "Part des 25–39 ans (%)",
         },
     )
 
     c_idf_ratio = make_card(
         client,
         db_id,
-        "Ratio prix / revenu par zone",
+        "Années de revenu pour un achat médian",
         "line",
-        """SELECT annee::text as annee, zone_idf,
-       round(ratio_achat_revenu_pondere::numeric, 1) as ratio_achat
-FROM mart_immo__synthese_zone ORDER BY annee, zone_idf""",
+        """SELECT annee::text AS "Année", zone_idf AS "Zone",
+       round(ratio_achat_revenu_pondere::numeric, 1) AS "Ratio prix / revenu (années)"
+FROM mart_immo__synthese_zone ORDER BY "Année", "Zone"
+""",
         "Années de revenu (Filosofi 2021) pour un achat médian (DVF 2020-2025).",
         viz={
-            "graph.dimensions": ["annee", "zone_idf"],
-            "graph.metrics": ["ratio_achat"],
-            "graph.y_axis.title_text": "Annees de revenu",
+            "graph.dimensions": ["Année", "Zone"],
+            "graph.metrics": ["Ratio prix / revenu (années)"],
+            "graph.x_axis.title_text": "Année",
+            "graph.y_axis.title_text": "Années de revenu",
         },
     )
 
     c_idf_surface = make_card(
         client,
         db_id,
-        "Surface mediane par zone",
+        "Surface médiane par zone",
         "line",
-        """SELECT annee::text as annee, zone_idf,
-       round(sum(surface_mediane * nb_ventes) / nullif(sum(nb_ventes), 0)) as surface_m2
+        """SELECT annee::text AS "Année", zone_idf AS "Zone",
+       round(sum(surface_mediane * nb_ventes) / nullif(sum(nb_ventes), 0)) AS "Surface médiane (m²)"
 FROM mart_immo__accessibilite_commune
-GROUP BY annee, zone_idf ORDER BY annee, zone_idf""",
+GROUP BY "Année", "Zone" ORDER BY "Année", "Zone"
+""",
         "Source : DVF 2020-2025 (Cerema).",
         viz={
-            "graph.dimensions": ["annee", "zone_idf"],
-            "graph.metrics": ["surface_m2"],
-            "graph.y_axis.title_text": "Surface (m2)",
+            "graph.dimensions": ["Année", "Zone"],
+            "graph.metrics": ["Surface médiane (m²)"],
+            "graph.x_axis.title_text": "Année",
+            "graph.y_axis.title_text": "Surface médiane (m²)",
         },
     )
 
     c_idf_map_loyer = make_card(
         client,
         db_id,
-        "Loyer au m2 — Ile-de-France",
+        "Loyer au m² — Île-de-France",
         "map",
-        f"SELECT code_commune, nom_commune, round(loyer_m2_median::numeric, 1) as loyer_m2, zone_idf\nFROM mart_immo__accessibilite_commune WHERE annee = {Y} AND loyer_m2_median IS NOT NULL",
-        "Loyer prédit au m² (appartements). Source : Carte des loyers 2025 (ANIL).",
-        map_viz("idf_communes", "loyer_m2"),
+        f"""SELECT code_departement AS "Département",
+       round((sum(loyer_m2_median * nb_ventes) / nullif(sum(nb_ventes), 0))::numeric, 1) AS "Loyer au m² (€)"
+FROM mart_immo__accessibilite_commune
+WHERE annee = {Y} AND loyer_m2_median IS NOT NULL
+GROUP BY "Département" ORDER BY "Département"
+""",
+        "Loyer prédit au m² (appartements), par département. Source : Carte des loyers 2025 (ANIL).",
+        map_viz("idf_departements", "Loyer au m² (€)", dimension="Département"),
     )
 
     c_idf_loyer_vs_achat = make_card(
         client,
         db_id,
-        "Loyer vs prix d'achat au m2 par zone",
+        "Loyer vs mensualité d'achat au m² par zone",
         "bar",
         f"""SELECT zone_idf,
-       round((sum(loyer_m2_median * nb_ventes) / nullif(sum(nb_ventes), 0))::numeric, 1) as loyer_m2_mois,
-       round((sum(prix_m2_median * nb_ventes) / nullif(sum(nb_ventes), 0) / 12)::numeric, 0) as mensualite_achat_m2
+       round((sum(loyer_m2_median * nb_ventes) / nullif(sum(nb_ventes), 0))::numeric, 1) AS "Loyer au m² (€/mois)",
+       round((sum(prix_m2_median * nb_ventes) / nullif(sum(nb_ventes), 0) / 12)::numeric, 0) AS "Mensualité d'achat au m² (€)"
 FROM mart_immo__accessibilite_commune
 WHERE annee = {Y} AND loyer_m2_median IS NOT NULL
-GROUP BY zone_idf ORDER BY zone_idf""",
+GROUP BY "Zone" ORDER BY "Zone"
+""",
         f"Loyer mensuel ANIL 2025 vs mensualité d'achat (1/12 du prix DVF {Y}).",
         viz={
-            "graph.dimensions": ["zone_idf"],
-            "graph.metrics": ["loyer_m2_mois", "mensualite_achat_m2"],
-            "graph.y_axis.title_text": "EUR / m2",
+            "graph.dimensions": ["Zone"],
+            "graph.metrics": ["Loyer au m² (€/mois)", "Mensualité d'achat au m² (€)"],
+            "graph.y_axis.title_text": "€ / m²",
         },
     )
 
     c_idf_map_delin = make_card(
         client,
         db_id,
-        "Delinquance — Ile-de-France",
+        "Délinquance — Île-de-France",
         "map",
-        f"""SELECT code_commune, nom_commune,
-       round(taux_delinquance_pour_mille::numeric, 1) as taux_delin, zone_idf
+        """SELECT code_departement AS "Département",
+       round((sum(nb_faits_delinquance::numeric) / nullif(sum(population_2021), 0) * 1000)::numeric, 1) AS "Faits pour 1 000 hab."
 FROM mart_immo__accessibilite_commune
 WHERE annee = (SELECT max(annee) FROM mart_immo__accessibilite_commune
                WHERE taux_delinquance_pour_mille IS NOT NULL)
-  AND taux_delinquance_pour_mille IS NOT NULL""",
-        "Faits pour 1000 habitants, dernière année disponible. Source : SSMSI / Min. Intérieur (2016-2024).",
-        map_viz("idf_communes", "taux_delin"),
+  AND taux_delinquance_pour_mille IS NOT NULL
+GROUP BY "Département" ORDER BY "Département"
+""",
+        "Faits pour 1000 habitants, dernière année disponible, par département. Source : SSMSI / Min. Intérieur (2016-2024).",
+        map_viz("idf_departements", "Faits pour 1 000 hab.", dimension="Département"),
     )
 
     c_idf_evol_delin = make_card(
         client,
         db_id,
-        "Evolution delinquance par zone",
+        "Évolution de la délinquance par zone",
         "line",
-        """SELECT annee::text as annee, zone_idf,
-       round((sum(nb_faits_delinquance::numeric) / nullif(sum(population_2021), 0) * 1000)::numeric, 1) as taux_delin
+        """SELECT annee::text AS "Année", zone_idf AS "Zone",
+       round((sum(nb_faits_delinquance::numeric) / nullif(sum(population_2021), 0) * 1000)::numeric, 1) AS "Faits pour 1 000 hab."
 FROM mart_immo__accessibilite_commune
 WHERE taux_delinquance_pour_mille IS NOT NULL
-GROUP BY annee, zone_idf ORDER BY annee, zone_idf""",
+GROUP BY "Année", "Zone" ORDER BY "Année", "Zone"
+""",
         "Source : SSMSI / Min. Intérieur (2016-2024).",
         viz={
-            "graph.dimensions": ["annee", "zone_idf"],
-            "graph.metrics": ["taux_delin"],
-            "graph.y_axis.title_text": "Faits / 1000 hab.",
+            "graph.dimensions": ["Année", "Zone"],
+            "graph.metrics": ["Faits pour 1 000 hab."],
+            "graph.x_axis.title_text": "Année",
+            "graph.y_axis.title_text": "Faits pour 1 000 hab.",
         },
     )
 
     c_idf_delin_type = make_card(
         client,
         db_id,
-        "Delinquance par categorie — Ile-de-France",
+        "Délinquance par catégorie — Île-de-France",
         "bar",
-        f"""SELECT {DELIN_CATEGORIES} as categorie,
-       round((sum(d.nb_faits) / nullif(sum(d.population), 0) * 1000)::numeric, 1) as taux_pour_mille
+        f"""SELECT {DELIN_CATEGORIES} AS "Catégorie",
+       round((sum(d.nb_faits) / nullif(sum(d.population), 0) * 1000)::numeric, 1) AS "Faits pour 1 000 hab."
 FROM stg_delinquance_detail d
 INNER JOIN mart_immo__accessibilite_commune a
     ON d.code_commune = a.code_commune AND d.annee = a.annee
 WHERE d.annee = 2024 AND a.zone_idf IS NOT NULL
-GROUP BY categorie ORDER BY taux_pour_mille DESC""",
+GROUP BY "Catégorie" ORDER BY "Faits pour 1 000 hab." DESC""",
         "Source : SSMSI / Min. Intérieur (année 2024).",
         viz={
-            "graph.dimensions": ["categorie"],
-            "graph.metrics": ["taux_pour_mille"],
-            "graph.y_axis.title_text": "Faits / 1000 hab.",
+            "graph.dimensions": ["Catégorie"],
+            "graph.metrics": ["Faits pour 1 000 hab."],
+            "graph.y_axis.title_text": "Faits pour 1 000 hab.",
         },
     )
 
     c_idf_evol_delits = make_card(
         client,
         db_id,
-        "Evolution des delits par categorie — IDF",
+        "Évolution des délits par catégorie — Île-de-France",
         "line",
-        f"""SELECT d.annee::text as annee, {DELIN_CATEGORIES} as categorie,
+        f"""SELECT d.annee::text AS "Année", {DELIN_CATEGORIES} AS "Catégorie",
        round((sum(d.nb_faits) / nullif(sum(d.population), 0) * 1000)::numeric, 1) as taux
 FROM stg_delinquance_detail d
 INNER JOIN mart_immo__accessibilite_commune a
     ON d.code_commune = a.code_commune AND d.annee = a.annee
 WHERE a.zone_idf IS NOT NULL
-GROUP BY d.annee, categorie ORDER BY d.annee, categorie""",
+GROUP BY d.annee, "Catégorie" ORDER BY d.annee, "Catégorie"
+""",
         "Source : SSMSI / Min. Intérieur (2016-2024).",
         viz={
-            "graph.dimensions": ["annee", "categorie"],
+            "graph.dimensions": ["Année", "Catégorie"],
             "graph.metrics": ["taux"],
-            "graph.y_axis.title_text": "Faits / 1000 hab.",
+            "graph.x_axis.title_text": "Année",
+            "graph.y_axis.title_text": "Faits pour 1 000 hab.",
         },
     )
 
     c_idf_map_60plus = make_card(
         client,
         db_id,
-        "Part des 60+ ans — Ile-de-France",
+        "Part des 60 ans et plus — Île-de-France",
         "map",
-        f"""SELECT code_commune, nom_commune,
-       round((part_60_plus * 100)::numeric, 1) as pct_60_plus, zone_idf
-FROM mart_immo__accessibilite_commune WHERE annee = {Y} AND part_60_plus IS NOT NULL""",
-        "Part des 60 ans et plus dans la population. Source : RP 2021 (INSEE).",
-        map_viz("idf_communes", "pct_60_plus"),
+        f"""SELECT code_departement AS "Département",
+       round((sum(part_60_plus * population_2021) / nullif(sum(population_2021), 0) * 100)::numeric, 1) AS "Part des 60 ans et plus (%)"
+FROM mart_immo__accessibilite_commune
+WHERE annee = {Y} AND part_60_plus IS NOT NULL
+GROUP BY "Département" ORDER BY "Département"
+""",
+        "Part des 60 ans et plus dans la population, par département. Source : RP 2021 (INSEE).",
+        map_viz("idf_departements", "Part des 60 ans et plus (%)", dimension="Département"),
     )
 
     c_idf_map_diplome = make_card(
         client,
         db_id,
-        "Part des diplômés du supérieur — Ile-de-France",
+        "Part des diplômés du supérieur — Île-de-France",
         "map",
-        f"""SELECT a.code_commune, a.nom_commune, d.part_etudes_sup, a.zone_idf
+        f"""SELECT a.code_departement AS "Département",
+       round((sum(d.part_etudes_sup * d.pop_15p_non_scol) / nullif(sum(d.pop_15p_non_scol), 0))::numeric, 1) AS "Diplômés du supérieur (%)"
 FROM mart_immo__accessibilite_commune a
 JOIN diplomes_communes d ON a.code_commune = d.code_commune
-WHERE a.annee = {Y} AND d.part_etudes_sup IS NOT NULL""",
-        "Part de la population 15+ ayant un diplôme bac+2 et plus. Source : RP 2021 (INSEE).",
-        map_viz("idf_communes", "part_etudes_sup"),
+WHERE a.annee = {Y} AND d.part_etudes_sup IS NOT NULL
+GROUP BY a.code_departement ORDER BY a.code_departement""",
+        "Part de la population 15+ ayant un diplôme bac+2 et plus, par département. Source : RP 2021 (INSEE).",
+        map_viz("idf_departements", "Diplômés du supérieur (%)", dimension="Département"),
     )
 
     c_idf_map_sans_diplome = make_card(
         client,
         db_id,
-        "Part sans diplôme — Ile-de-France",
+        "Part sans diplôme — Île-de-France",
         "map",
-        f"""SELECT a.code_commune, a.nom_commune, d.part_sans_diplome, a.zone_idf
+        f"""SELECT a.code_departement AS "Département",
+       round((sum(d.part_sans_diplome * d.pop_15p_non_scol) / nullif(sum(d.pop_15p_non_scol), 0))::numeric, 1) AS "Sans diplôme (%)"
 FROM mart_immo__accessibilite_commune a
 JOIN diplomes_communes d ON a.code_commune = d.code_commune
-WHERE a.annee = {Y} AND d.part_sans_diplome IS NOT NULL""",
-        "Part de la population 15+ sans diplôme ou avec CEP. Source : RP 2021 (INSEE).",
-        map_viz("idf_communes", "part_sans_diplome"),
+WHERE a.annee = {Y} AND d.part_sans_diplome IS NOT NULL
+GROUP BY a.code_departement ORDER BY a.code_departement""",
+        "Part de la population 15+ sans diplôme ou avec CEP, par département. Source : RP 2021 (INSEE).",
+        map_viz("idf_departements", "Sans diplôme (%)", dimension="Département"),
     )
 
     # ── Paris tab cards ──
     c_paris_map_prix = make_card(
         client,
         db_id,
-        "Prix au m2 — Paris",
+        "Prix au m² — Paris",
         "map",
-        f"SELECT code_commune, nom_commune, round(prix_m2_median::numeric) as prix_m2, nb_ventes\nFROM mart_immo__accessibilite_commune WHERE annee = {Y} AND code_commune LIKE '751%'",
+        f"""SELECT code_commune AS "Code commune", round(prix_m2_median::numeric) AS "Prix au m² (€)"
+FROM mart_immo__accessibilite_commune WHERE annee = {Y} AND code_commune LIKE '751%'""",
         f"Prix médian au m² par arrondissement. Source : DVF {Y} (Cerema).",
-        map_viz("paris_arr", "prix_m2"),
+        map_viz("paris_arr", "Prix au m² (€)"),
     )
 
     c_paris_map_age = make_card(
         client,
         db_id,
-        "Part des 25-39 ans — Paris",
+        "Part des 25–39 ans — Paris",
         "map",
-        f"SELECT code_commune, nom_commune, round((part_25_39 * 100)::numeric, 1) as pct_25_39\nFROM mart_immo__accessibilite_commune WHERE annee = {Y} AND code_commune LIKE '751%'",
-        "Part des 25-39 ans dans la population. Source : RP 2021 (INSEE).",
-        map_viz("paris_arr", "pct_25_39"),
+        f"""SELECT code_commune AS "Code commune", round((part_25_39 * 100)::numeric, 1) AS "Part des 25–39 ans (%)"
+FROM mart_immo__accessibilite_commune WHERE annee = {Y} AND code_commune LIKE '751%'""",
+        "Part des 25–39 ans dans la population. Source : RP 2021 (INSEE).",
+        map_viz("paris_arr", "Part des 25–39 ans (%)"),
     )
 
     c_paris_evol = make_card(
         client,
         db_id,
-        "Evolution prix au m2 par arrondissement",
+        "Évolution du prix au m² par arrondissement",
         "line",
-        """SELECT annee::text as annee, nom_commune, round(prix_m2_median::numeric) as prix_m2
+        """SELECT annee::text AS "Année", nom_commune AS "Commune", round(prix_m2_median::numeric) AS "Prix au m² (€)"
 FROM mart_immo__evolution_prix WHERE code_commune LIKE '751%'
-ORDER BY annee, nom_commune""",
+ORDER BY "Année", nom_commune""",
         "Source : DVF 2020-2025 (Cerema).",
         viz={
-            "graph.dimensions": ["annee", "nom_commune"],
-            "graph.metrics": ["prix_m2"],
-            "graph.y_axis.title_text": "EUR / m2",
+            "graph.dimensions": ["Année", "Commune"],
+            "graph.metrics": ["Prix au m² (€)"],
+            "graph.x_axis.title_text": "Année",
+            "graph.y_axis.title_text": "€ / m²",
         },
     )
 
     c_paris_table = make_card(
         client,
         db_id,
-        f"Detail par arrondissement ({Y})",
+        f"Détail par arrondissement ({Y})",
         "table",
-        f"""SELECT nom_commune, round(prix_m2_median::numeric) as prix_m2, nb_ventes,
-       round((part_25_39 * 100)::numeric, 1) as pct_25_39,
-       round(niveau_vie_median::numeric) as revenu, round(surface_mediane::numeric, 1) as surface_m2
+        f"""SELECT nom_commune AS "Commune",
+       round(prix_m2_median::numeric) AS "Prix au m² (€)",
+       nb_ventes AS "Nombre de ventes",
+       round((part_25_39 * 100)::numeric, 1) AS "Part des 25–39 ans (%)",
+       round(niveau_vie_median::numeric) AS "Revenu médian (€)",
+       round(surface_mediane::numeric, 1) AS "Surface médiane (m²)"
 FROM mart_immo__accessibilite_commune
 WHERE annee = {Y} AND code_commune LIKE '751%' ORDER BY prix_m2_median DESC""",
         f"Sources : prix et surface DVF {Y} (Cerema), démographie RP 2021, revenus Filosofi 2021 (INSEE).",
@@ -1297,32 +1402,35 @@ WHERE annee = {Y} AND code_commune LIKE '751%' ORDER BY prix_m2_median DESC""",
     c_paris_surface = make_card(
         client,
         db_id,
-        f"Surface mediane par arrondissement ({Y})",
+        f"Surface médiane par arrondissement ({Y})",
         "bar",
-        f"""SELECT nom_commune, round(surface_mediane::numeric, 1) as surface_m2, nb_ventes
+        f"""SELECT nom_commune AS "Commune",
+       round(surface_mediane::numeric, 1) AS "Surface médiane (m²)",
+       nb_ventes AS "Nombre de ventes"
 FROM mart_immo__accessibilite_commune
 WHERE annee = {Y} AND code_commune LIKE '751%' ORDER BY surface_mediane DESC""",
         f"Source : DVF {Y} (Cerema).",
         viz={
-            "graph.dimensions": ["nom_commune"],
-            "graph.metrics": ["surface_m2"],
-            "graph.y_axis.title_text": "Surface (m2)",
+            "graph.dimensions": ["Commune"],
+            "graph.metrics": ["Surface médiane (m²)"],
+            "graph.y_axis.title_text": "Surface médiane (m²)",
+            "graph.colors": ["#66BB6A"],
         },
     )
 
     c_paris_map_loyer_studio = make_card(
         client,
         db_id,
-        "Loyer estime studio — Paris",
+        "Loyer estimé studio — Paris",
         "map",
-        f"""SELECT a.code_commune, a.nom_commune,
-       round((a.loyer_m2_median * p.surface_mediane)::numeric) as loyer_mensuel
+        f"""SELECT a.code_commune AS "Code commune",
+       round((a.loyer_m2_median * p.surface_mediane)::numeric) AS "Loyer mensuel (€)"
 FROM mart_immo__accessibilite_commune a
 JOIN prix_paris_par_pieces p
     ON a.code_commune = p.code_commune AND a.annee = p.annee
 WHERE a.annee = {Y} AND p.nb_pieces = 1 AND a.loyer_m2_median IS NOT NULL""",
         f"Loyer m² ANIL 2025 × surface médiane studio DVF {Y}.",
-        map_viz("paris_arr", "loyer_mensuel"),
+        map_viz("paris_arr", "Loyer mensuel (€)"),
     )
 
     c_paris_map_loyer_2p = make_card(
@@ -1330,47 +1438,47 @@ WHERE a.annee = {Y} AND p.nb_pieces = 1 AND a.loyer_m2_median IS NOT NULL""",
         db_id,
         "Loyer estimé 2 pièces — Paris",
         "map",
-        f"""SELECT a.code_commune, a.nom_commune,
-       round((a.loyer_m2_median * p.surface_mediane)::numeric) as loyer_mensuel
+        f"""SELECT a.code_commune AS "Code commune",
+       round((a.loyer_m2_median * p.surface_mediane)::numeric) AS "Loyer mensuel (€)"
 FROM mart_immo__accessibilite_commune a
 JOIN prix_paris_par_pieces p
     ON a.code_commune = p.code_commune AND a.annee = p.annee
 WHERE a.annee = {Y} AND p.nb_pieces = 2 AND a.loyer_m2_median IS NOT NULL""",
         f"Loyer m² ANIL 2025 × surface médiane 2P DVF {Y}.",
-        map_viz("paris_arr", "loyer_mensuel"),
+        map_viz("paris_arr", "Loyer mensuel (€)"),
     )
 
     c_paris_map_delin = make_card(
         client,
         db_id,
-        "Delinquance — Paris",
+        "Délinquance — Paris",
         "map",
-        f"""SELECT code_commune, nom_commune,
-       round(taux_delinquance_pour_mille::numeric, 1) as taux_delin
+        """SELECT code_commune AS "Code commune",
+       round(taux_delinquance_pour_mille::numeric, 1) AS "Faits pour 1 000 hab."
 FROM mart_immo__accessibilite_commune
 WHERE annee = (SELECT max(annee) FROM mart_immo__accessibilite_commune
                WHERE taux_delinquance_pour_mille IS NOT NULL)
   AND code_commune LIKE '751%' AND taux_delinquance_pour_mille IS NOT NULL""",
         "Faits pour 1000 habitants, dernière année disponible. Source : SSMSI / Min. Intérieur (2016-2024).",
-        map_viz("paris_arr", "taux_delin"),
+        map_viz("paris_arr", "Faits pour 1 000 hab."),
     )
 
     c_paris_delin_cat = make_card(
         client,
         db_id,
-        "Delinquance par categorie et arrondissement",
+        "Délinquance par catégorie et arrondissement",
         "bar",
-        f"""SELECT cast(right(d.code_commune, 2) as integer) as arrdt,
-       {DELIN_CATEGORIES} as categorie,
-       round((sum(d.nb_faits) / nullif(sum(d.population), 0) * 1000)::numeric, 1) as taux_pour_mille
+        f"""SELECT cast(right(d.code_commune, 2) as integer) AS "Arrondissement",
+       {DELIN_CATEGORIES} AS "Catégorie",
+       round((sum(d.nb_faits) / nullif(sum(d.population), 0) * 1000)::numeric, 1) AS "Faits pour 1 000 hab."
 FROM stg_delinquance_detail d
 WHERE d.annee = 2024 AND d.code_commune LIKE '751%'
-GROUP BY arrdt, categorie ORDER BY arrdt, taux_pour_mille DESC""",
+GROUP BY "Arrondissement", "Catégorie" ORDER BY "Arrondissement", "Faits pour 1 000 hab." DESC""",
         "Source : SSMSI / Min. Intérieur (année 2024).",
         viz={
-            "graph.dimensions": ["arrdt", "categorie"],
-            "graph.metrics": ["taux_pour_mille"],
-            "graph.y_axis.title_text": "Faits / 1000 hab.",
+            "graph.dimensions": ["Arrondissement", "Catégorie"],
+            "graph.metrics": ["Faits pour 1 000 hab."],
+            "graph.y_axis.title_text": "Faits pour 1 000 hab.",
             "stackable.stack_type": "stacked",
         },
     )
@@ -1380,10 +1488,10 @@ GROUP BY arrdt, categorie ORDER BY arrdt, taux_pour_mille DESC""",
         db_id,
         "Densité pistes cyclables — Paris (km/km²)",
         "map",
-        """SELECT code_commune, nom_commune, km_par_km2
+        """SELECT code_commune AS "Code commune", km_par_km2
 FROM cyclable_paris""",
         "Linéaire d'aménagements cyclables par km². Source : Paris OpenData (snapshot).",
-        map_viz("paris_arr", "km_par_km2"),
+        map_viz("paris_arr", "Pistes cyclables (km/km²)"),
     )
 
     c_paris_map_metro = make_card(
@@ -1391,23 +1499,23 @@ FROM cyclable_paris""",
         db_id,
         "Densité métro + RER — Paris (stations/km²)",
         "map",
-        """SELECT code_commune, nom_commune, stations_par_km2, nb_lignes_accessibles
+        """SELECT code_commune AS "Code commune", stations_par_km2, nb_lignes_accessibles
 FROM metro_stations WHERE code_commune LIKE '751%'""",
         "Stations métro et RER par km² (uniques par nom). Source : IDFM Open Data.",
-        map_viz("paris_arr", "stations_par_km2"),
+        map_viz("paris_arr", "Stations par km²"),
     )
 
     c_paris_map_60plus = make_card(
         client,
         db_id,
-        "Part des 60+ ans — Paris",
+        "Part des 60 ans et plus — Paris",
         "map",
-        f"""SELECT code_commune, nom_commune,
-       round((part_60_plus * 100)::numeric, 1) as pct_60_plus
+        f"""SELECT code_commune AS "Code commune",
+       round((part_60_plus * 100)::numeric, 1) AS "Part des 60 ans et plus (%)"
 FROM mart_immo__accessibilite_commune
 WHERE annee = {Y} AND code_commune LIKE '751%' AND part_60_plus IS NOT NULL""",
         "Part des 60 ans et plus dans la population. Source : RP 2021 (INSEE).",
-        map_viz("paris_arr", "pct_60_plus"),
+        map_viz("paris_arr", "Part des 60 ans et plus (%)"),
     )
 
     c_paris_map_diplome = make_card(
@@ -1415,12 +1523,12 @@ WHERE annee = {Y} AND code_commune LIKE '751%' AND part_60_plus IS NOT NULL""",
         db_id,
         "Part des diplômés du supérieur — Paris",
         "map",
-        f"""SELECT a.code_commune, a.nom_commune, d.part_etudes_sup
+        f"""SELECT a.code_commune AS "Code commune", d.part_etudes_sup
 FROM mart_immo__accessibilite_commune a
 JOIN diplomes_communes d ON a.code_commune = d.code_commune
 WHERE a.annee = {Y} AND a.code_commune LIKE '751%'""",
         "Part de la population 15+ ayant un diplôme bac+2 et plus. Source : RP 2021 (INSEE).",
-        map_viz("paris_arr", "part_etudes_sup"),
+        map_viz("paris_arr", "Diplômés du supérieur (%)"),
     )
 
     c_paris_map_sans_diplome = make_card(
@@ -1428,59 +1536,80 @@ WHERE a.annee = {Y} AND a.code_commune LIKE '751%'""",
         db_id,
         "Part sans diplôme — Paris",
         "map",
-        f"""SELECT a.code_commune, a.nom_commune, d.part_sans_diplome
+        f"""SELECT a.code_commune AS "Code commune", d.part_sans_diplome
 FROM mart_immo__accessibilite_commune a
 JOIN diplomes_communes d ON a.code_commune = d.code_commune
 WHERE a.annee = {Y} AND a.code_commune LIKE '751%'""",
         "Part de la population 15+ sans diplôme ou avec CEP. Source : RP 2021 (INSEE).",
-        map_viz("paris_arr", "part_sans_diplome"),
+        map_viz("paris_arr", "Sans diplôme (%)"),
+    )
+
+    c_paris_scatter = make_card(
+        client,
+        db_id,
+        f"Part des 25–39 ans vs prix au m² par arrondissement ({Y})",
+        "scatter",
+        f"""SELECT nom_commune AS "Commune",
+       round(prix_m2_median::numeric) AS "Prix au m² (€)",
+       round((part_25_39 * 100)::numeric, 1) AS "Part des 25–39 ans (%)"
+FROM mart_immo__accessibilite_commune
+WHERE annee = {Y} AND code_commune LIKE '751%' AND part_25_39 IS NOT NULL
+ORDER BY prix_m2_median""",
+        f"Chaque point = un arrondissement. Sources : prix DVF {Y} (Cerema), démographie RP 2021 (INSEE).",
+        viz={
+            "graph.dimensions": ["Prix au m² (€)"],
+            "graph.metrics": ["Part des 25–39 ans (%)"],
+            "graph.x_axis.title_text": "Prix au m² (€)",
+            "graph.y_axis.title_text": "Part des 25–39 ans (%)",
+        },
     )
 
     # ── Petite couronne tab cards ──
     c_pc_map_prix = make_card(
         client,
         db_id,
-        "Prix au m2 — Petite couronne",
+        "Prix au m² — Petite couronne",
         "map",
-        f"""SELECT code_commune, nom_commune, round(prix_m2_median::numeric) as prix_m2, nb_ventes
+        f"""SELECT code_commune AS "Code commune", round(prix_m2_median::numeric) AS "Prix au m² (€)"
 FROM mart_immo__accessibilite_commune
 WHERE annee = {Y} AND {_pc_scope('zone_idf', 'code_departement')}""",
         f"Prix médian au m² par commune. Source : DVF {Y} (Cerema).",
-        map_viz("petite_couronne_plus_paris", "prix_m2"),
+        map_viz("petite_couronne_plus_paris", "Prix au m² (€)"),
         template_tags=PC_INCLUDE_PARIS_TAG,
     )
 
     c_pc_map_age = make_card(
         client,
         db_id,
-        "Part des 25-39 ans — Petite couronne",
+        "Part des 25–39 ans — Petite couronne",
         "map",
-        f"""SELECT code_commune, nom_commune, round((part_25_39 * 100)::numeric, 1) as pct_25_39
+        f"""SELECT code_commune AS "Code commune", round((part_25_39 * 100)::numeric, 1) AS "Part des 25–39 ans (%)"
 FROM mart_immo__accessibilite_commune
 WHERE annee = {Y} AND {_pc_scope('zone_idf', 'code_departement')}""",
-        "Part des 25-39 ans dans la population. Source : RP 2021 (INSEE).",
-        map_viz("petite_couronne_plus_paris", "pct_25_39"),
+        "Part des 25–39 ans dans la population. Source : RP 2021 (INSEE).",
+        map_viz("petite_couronne_plus_paris", "Part des 25–39 ans (%)"),
         template_tags=PC_INCLUDE_PARIS_TAG,
     )
 
     c_pc_evol = make_card(
         client,
         db_id,
-        "Evolution prix m2 — top 10 communes",
+        "Évolution du prix au m² — top 10 communes",
         "line",
-        f"""SELECT e.annee::text as annee, e.nom_commune, round(e.prix_m2_median::numeric) as prix_m2
+        f"""SELECT e.annee::text AS "Année", e.nom_commune AS "Commune", round(e.prix_m2_median::numeric) AS "Prix au m² (€)"
 FROM mart_immo__evolution_prix e
 WHERE {_pc_scope(dept_field='e.code_departement')}
   AND e.code_commune IN (
     SELECT code_commune FROM mart_immo__accessibilite_commune
     WHERE annee = {Y} AND {_pc_scope('zone_idf', 'code_departement')}
     ORDER BY nb_ventes DESC LIMIT 10)
-ORDER BY annee, nom_commune""",
+ORDER BY "Année", nom_commune""",
         "Top 10 communes par volume de ventes. Source : DVF 2020-2025 (Cerema).",
         viz={
-            "graph.dimensions": ["annee", "nom_commune"],
-            "graph.metrics": ["prix_m2"],
-            "graph.y_axis.title_text": "EUR / m2",
+            "graph.dimensions": ["Année", "Commune"],
+            "graph.metrics": ["Prix au m² (€)"],
+            "graph.x_axis.title_text": "Année",
+            "graph.y_axis.title_text": "€ / m²",
         },
         template_tags=PC_INCLUDE_PARIS_TAG,
     )
@@ -1490,14 +1619,15 @@ ORDER BY annee, nom_commune""",
         db_id,
         f"Top 20 communes ({Y})",
         "table",
-        f"""SELECT nom_commune, code_departement as dept,
-       round(prix_m2_median::numeric) as prix_m2, nb_ventes,
-       round((part_25_39 * 100)::numeric, 1) as pct_25_39,
-       round(niveau_vie_median::numeric) as revenu,
-       round(ratio_achat_revenu_annuel::numeric, 1) as ratio_achat
+        f"""SELECT nom_commune AS "Commune", code_departement AS "Département",
+       round(prix_m2_median::numeric) AS "Prix au m² (€)",
+       nb_ventes AS "Nombre de ventes",
+       round((part_25_39 * 100)::numeric, 1) AS "Part des 25–39 ans (%)",
+       round(niveau_vie_median::numeric) AS "Revenu médian (€)",
+       round(ratio_achat_revenu_annuel::numeric, 1) AS "Ratio prix / revenu (années)"
 FROM mart_immo__accessibilite_commune
 WHERE annee = {Y} AND {_pc_scope('zone_idf', 'code_departement')}
-ORDER BY nb_ventes DESC LIMIT 20""",
+ORDER BY "Nombre de ventes" DESC LIMIT 20""",
         f"Classées par volume de ventes. Sources : DVF {Y}, RP 2021, Filosofi 2021.",
         template_tags=PC_INCLUDE_PARIS_TAG,
     )
@@ -1505,52 +1635,52 @@ ORDER BY nb_ventes DESC LIMIT 20""",
     c_pc_map_loyer = make_card(
         client,
         db_id,
-        "Loyer au m2 — Petite couronne",
+        "Loyer au m² — Petite couronne",
         "map",
-        f"""SELECT code_commune, nom_commune, round(loyer_m2_median::numeric, 1) as loyer_m2
+        f"""SELECT code_commune AS "Code commune", round(loyer_m2_median::numeric, 1) AS "Loyer au m² (€)"
 FROM mart_immo__accessibilite_commune
 WHERE annee = {Y}
   AND {_pc_scope('zone_idf', 'code_departement')}
   AND loyer_m2_median IS NOT NULL""",
         "Loyer prédit au m² (appartements). Source : Carte des loyers 2025 (ANIL).",
-        map_viz("petite_couronne_plus_paris", "loyer_m2"),
+        map_viz("petite_couronne_plus_paris", "Loyer au m² (€)"),
         template_tags=PC_INCLUDE_PARIS_TAG,
     )
 
     c_pc_map_delin = make_card(
         client,
         db_id,
-        "Delinquance — Petite couronne",
+        "Délinquance — Petite couronne",
         "map",
-        f"""SELECT code_commune, nom_commune,
-       round(taux_delinquance_pour_mille::numeric, 1) as taux_delin
+        f"""SELECT code_commune AS "Code commune",
+       round(taux_delinquance_pour_mille::numeric, 1) AS "Faits pour 1 000 hab."
 FROM mart_immo__accessibilite_commune
 WHERE annee = (SELECT max(annee) FROM mart_immo__accessibilite_commune
                WHERE taux_delinquance_pour_mille IS NOT NULL)
   AND {_pc_scope('zone_idf', 'code_departement')}
   AND taux_delinquance_pour_mille IS NOT NULL""",
         "Faits pour 1000 habitants, dernière année disponible. Source : SSMSI / Min. Intérieur (2016-2024).",
-        map_viz("petite_couronne_plus_paris", "taux_delin"),
+        map_viz("petite_couronne_plus_paris", "Faits pour 1 000 hab."),
         template_tags=PC_INCLUDE_PARIS_TAG,
     )
 
     c_pc_delin_cat = make_card(
         client,
         db_id,
-        "Delinquance par categorie — Petite couronne",
+        "Délinquance par catégorie — Petite couronne",
         "bar",
-        f"""SELECT {DELIN_CATEGORIES} as categorie,
-       round((sum(d.nb_faits) / nullif(sum(d.population), 0) * 1000)::numeric, 1) as taux_pour_mille
+        f"""SELECT {DELIN_CATEGORIES} AS "Catégorie",
+       round((sum(d.nb_faits) / nullif(sum(d.population), 0) * 1000)::numeric, 1) AS "Faits pour 1 000 hab."
 FROM stg_delinquance_detail d
 INNER JOIN mart_immo__accessibilite_commune a
     ON d.code_commune = a.code_commune AND d.annee = a.annee
 WHERE d.annee = 2024 AND {_pc_scope('a.zone_idf', 'a.code_departement')}
-GROUP BY categorie ORDER BY taux_pour_mille DESC""",
+GROUP BY "Catégorie" ORDER BY "Faits pour 1 000 hab." DESC""",
         "Source : SSMSI / Min. Intérieur (année 2024).",
         viz={
-            "graph.dimensions": ["categorie"],
-            "graph.metrics": ["taux_pour_mille"],
-            "graph.y_axis.title_text": "Faits / 1000 hab.",
+            "graph.dimensions": ["Catégorie"],
+            "graph.metrics": ["Faits pour 1 000 hab."],
+            "graph.y_axis.title_text": "Faits pour 1 000 hab.",
         },
         template_tags=PC_INCLUDE_PARIS_TAG,
     )
@@ -1560,27 +1690,27 @@ GROUP BY categorie ORDER BY taux_pour_mille DESC""",
         db_id,
         "Densité métro + RER — Petite couronne (stations/km²)",
         "map",
-        f"""SELECT code_commune, nom_commune, stations_par_km2
+        f"""SELECT code_commune AS "Code commune", stations_par_km2
 FROM metro_stations
 WHERE {_pc_scope(code_field='code_commune')}""",
         "Stations métro et RER par km². Source : IDFM Open Data.",
-        map_viz("petite_couronne_plus_paris", "stations_par_km2"),
+        map_viz("petite_couronne_plus_paris", "Stations par km²"),
         template_tags=PC_INCLUDE_PARIS_TAG,
     )
 
     c_pc_map_60plus = make_card(
         client,
         db_id,
-        "Part des 60+ ans — Petite couronne",
+        "Part des 60 ans et plus — Petite couronne",
         "map",
-        f"""SELECT code_commune, nom_commune,
-       round((part_60_plus * 100)::numeric, 1) as pct_60_plus
+        f"""SELECT code_commune AS "Code commune",
+       round((part_60_plus * 100)::numeric, 1) AS "Part des 60 ans et plus (%)"
 FROM mart_immo__accessibilite_commune
 WHERE annee = {Y}
   AND {_pc_scope('zone_idf', 'code_departement')}
   AND part_60_plus IS NOT NULL""",
         "Part des 60 ans et plus dans la population. Source : RP 2021 (INSEE).",
-        map_viz("petite_couronne_plus_paris", "pct_60_plus"),
+        map_viz("petite_couronne_plus_paris", "Part des 60 ans et plus (%)"),
         template_tags=PC_INCLUDE_PARIS_TAG,
     )
 
@@ -1589,12 +1719,12 @@ WHERE annee = {Y}
         db_id,
         "Part des diplômés du supérieur — Petite couronne",
         "map",
-        f"""SELECT a.code_commune, a.nom_commune, d.part_etudes_sup
+        f"""SELECT a.code_commune AS "Code commune", d.part_etudes_sup
 FROM mart_immo__accessibilite_commune a
 JOIN diplomes_communes d ON a.code_commune = d.code_commune
 WHERE a.annee = {Y} AND {_pc_scope('a.zone_idf', 'a.code_departement')}""",
         "Part de la population 15+ ayant un diplôme bac+2 et plus. Source : RP 2021 (INSEE).",
-        map_viz("petite_couronne_plus_paris", "part_etudes_sup"),
+        map_viz("petite_couronne_plus_paris", "Diplômés du supérieur (%)"),
         template_tags=PC_INCLUDE_PARIS_TAG,
     )
 
@@ -1603,12 +1733,34 @@ WHERE a.annee = {Y} AND {_pc_scope('a.zone_idf', 'a.code_departement')}""",
         db_id,
         "Part sans diplôme — Petite couronne",
         "map",
-        f"""SELECT a.code_commune, a.nom_commune, d.part_sans_diplome
+        f"""SELECT a.code_commune AS "Code commune", d.part_sans_diplome
 FROM mart_immo__accessibilite_commune a
 JOIN diplomes_communes d ON a.code_commune = d.code_commune
 WHERE a.annee = {Y} AND {_pc_scope('a.zone_idf', 'a.code_departement')}""",
         "Part de la population 15+ sans diplôme ou avec CEP. Source : RP 2021 (INSEE).",
-        map_viz("petite_couronne_plus_paris", "part_sans_diplome"),
+        map_viz("petite_couronne_plus_paris", "Sans diplôme (%)"),
+        template_tags=PC_INCLUDE_PARIS_TAG,
+    )
+
+    c_pc_scatter = make_card(
+        client,
+        db_id,
+        f"Part des 25–39 ans vs prix au m² par commune ({Y})",
+        "scatter",
+        f"""SELECT nom_commune AS "Commune", code_departement,
+       round(prix_m2_median::numeric) AS "Prix au m² (€)",
+       round((part_25_39 * 100)::numeric, 1) AS "Part des 25–39 ans (%)"
+FROM mart_immo__accessibilite_commune
+WHERE annee = {Y} AND {_pc_scope('zone_idf', 'code_departement')}
+  AND part_25_39 IS NOT NULL
+ORDER BY prix_m2_median""",
+        f"Chaque point = une commune. Sources : prix DVF {Y} (Cerema), démographie RP 2021 (INSEE).",
+        viz={
+            "graph.dimensions": ["Prix au m² (€)", "Département"],
+            "graph.metrics": ["Part des 25–39 ans (%)"],
+            "graph.x_axis.title_text": "Prix au m² (€)",
+            "graph.y_axis.title_text": "Part des 25–39 ans (%)",
+        },
         template_tags=PC_INCLUDE_PARIS_TAG,
     )
 
@@ -1617,8 +1769,8 @@ WHERE a.annee = {Y} AND {_pc_scope('a.zone_idf', 'a.code_departement')}""",
         r = client.post(
             "/api/dashboard",
             json={
-                "name": "Panorama Ile-de-France",
-                "description": "Immobilier, revenus, loyers, demographie et securite par commune (2020-2025).",
+                "name": "Panorama Île-de-France",
+                "description": "Immobilier, revenus, loyers, démographie et sécurité par commune (2020–2025).",
             },
         )
         r.raise_for_status()
@@ -1665,16 +1817,12 @@ WHERE a.annee = {Y} AND {_pc_scope('a.zone_idf', 'a.code_departement')}""",
         n -= 1
         return _text(n, tab, row, col, sx, sy, text)
 
-    r = client.put(
-        f"/api/dashboard/{dash_id}",
-        json={
-            "tabs": [
-                {"id": T1, "name": "Ile-de-France"},
-                {"id": T2, "name": "Paris"},
-                {"id": T3, "name": "Petite couronne"},
-            ],
-            "parameters": [PC_INCLUDE_PARIS_PARAMETER],
-            "dashcards": [
+    tabs_spec = [
+        {"id": T2, "name": "Paris"},
+        {"id": T3, "name": "Petite couronne"},
+        {"id": T1, "name": "Île-de-France"},
+    ]
+    dashcards = [
                 # ═══ IDF ═══
                 _head(T1, 0, "Logement"),
                 _card(c_idf_map_prix, T1, 2, 0, 24, 12),
@@ -1712,15 +1860,16 @@ WHERE a.annee = {Y} AND {_pc_scope('a.zone_idf', 'a.code_departement')}""",
                 _card(c_paris_map_diplome, T2, 64, 0, 12, 10),
                 _card(c_paris_map_sans_diplome, T2, 64, 12, 12, 10),
                 _card(c_paris_map_60plus, T2, 74, 0, 24, 10),
-                _head(T2, 85, "Sécurité"),
-                _card(c_paris_map_delin, T2, 87, 0, 24, 10),
-                _card(c_paris_delin_cat, T2, 97, 0, 16, 10),
-                _txt(T2, 97, 16, 8, 10, DELIN_LEGEND),
-                _head(T2, 108, "Mobilité"),
-                _card(c_paris_map_metro, T2, 110, 0, 24, 10),
-                _card(c_paris_map_cyclable, T2, 120, 0, 24, 10),
-                _txt(T2, 132, 0, 24, 2, INTRO_TEXT),
-                _txt(T2, 135, 0, 24, 5, FEEDBACK_TEXT),
+                _card(c_paris_scatter, T2, 84, 0, 24, 10),
+                _head(T2, 95, "Sécurité"),
+                _card(c_paris_map_delin, T2, 97, 0, 24, 10),
+                _card(c_paris_delin_cat, T2, 107, 0, 16, 10),
+                _txt(T2, 107, 16, 8, 10, DELIN_LEGEND),
+                _head(T2, 118, "Mobilité"),
+                _card(c_paris_map_metro, T2, 120, 0, 24, 10),
+                _card(c_paris_map_cyclable, T2, 130, 0, 24, 10),
+                _txt(T2, 142, 0, 24, 2, INTRO_TEXT),
+                _txt(T2, 145, 0, 24, 5, FEEDBACK_TEXT),
                 # ═══ Petite couronne ═══
                 _head(T3, 0, "Logement"),
                 _card(c_pc_map_prix, T3, 2, 0, 24, 12, _pc_param_mappings(c_pc_map_prix)),
@@ -1732,19 +1881,79 @@ WHERE a.annee = {Y} AND {_pc_scope('a.zone_idf', 'a.code_departement')}""",
                 _card(c_pc_map_diplome, T3, 56, 0, 12, 10, _pc_param_mappings(c_pc_map_diplome)),
                 _card(c_pc_map_sans_diplome, T3, 56, 12, 12, 10, _pc_param_mappings(c_pc_map_sans_diplome)),
                 _card(c_pc_map_60plus, T3, 66, 0, 24, 10, _pc_param_mappings(c_pc_map_60plus)),
-                _head(T3, 77, "Sécurité"),
-                _card(c_pc_map_delin, T3, 79, 0, 24, 10, _pc_param_mappings(c_pc_map_delin)),
-                _card(c_pc_delin_cat, T3, 89, 0, 16, 8, _pc_param_mappings(c_pc_delin_cat)),
-                _txt(T3, 89, 16, 8, 8, DELIN_LEGEND),
-                _head(T3, 98, "Mobilité"),
-                _card(c_pc_map_metro, T3, 100, 0, 24, 10, _pc_param_mappings(c_pc_map_metro)),
-                _txt(T3, 112, 0, 24, 2, INTRO_TEXT),
-                _txt(T3, 115, 0, 24, 5, FEEDBACK_TEXT),
-            ],
+                _card(c_pc_scatter, T3, 76, 0, 24, 10, _pc_param_mappings(c_pc_scatter)),
+                _head(T3, 87, "Sécurité"),
+                _card(c_pc_map_delin, T3, 89, 0, 24, 10, _pc_param_mappings(c_pc_map_delin)),
+                _card(c_pc_delin_cat, T3, 99, 0, 16, 8, _pc_param_mappings(c_pc_delin_cat)),
+                _txt(T3, 99, 16, 8, 8, DELIN_LEGEND),
+                _head(T3, 108, "Mobilité"),
+                _card(c_pc_map_metro, T3, 110, 0, 24, 10, _pc_param_mappings(c_pc_map_metro)),
+                _txt(T3, 122, 0, 24, 2, INTRO_TEXT),
+                _txt(T3, 125, 0, 24, 5, FEEDBACK_TEXT),
+            ]
+
+    r = client.put(
+        f"/api/dashboard/{dash_id}",
+        json={
+            "name": "Panorama Île-de-France",
+            "description": "Immobilier, revenus, loyers, démographie et sécurité par commune (2020–2025).",
+            "tabs": tabs_spec,
+            "parameters": [PC_INCLUDE_PARIS_PARAMETER],
+            "dashcards": dashcards,
         },
     )
     r.raise_for_status()
-    print("  3 onglets, 43 cartes, 11 sections")
+
+    # Seconde passe : remplace les IDs virtuels (T1/T2/T3) par ceux attribués
+    # par Metabase au PUT, puis ajoute une barre de navigation en bas de
+    # chaque onglet pointant vers les deux autres.
+    real_dash = client.get(f"/api/dashboard/{dash_id}").json()
+    tab_id_by_name = {t["name"]: t["id"] for t in real_dash.get("tabs", [])}
+    real_T2 = tab_id_by_name["Paris"]
+    real_T3 = tab_id_by_name["Petite couronne"]
+    real_T1 = tab_id_by_name["Île-de-France"]
+    virt_to_real = {T1: real_T1, T2: real_T2, T3: real_T3}
+
+    remapped_dashcards = []
+    for dc in dashcards:
+        dc = dict(dc)
+        dc["dashboard_tab_id"] = virt_to_real[dc["dashboard_tab_id"]]
+        remapped_dashcards.append(dc)
+
+    def _nav_md(current: str) -> str:
+        ordered = ["Paris", "Petite couronne", "Île-de-France"]
+        parts = [
+            f"[→ {name}](/dashboard/{dash_id}?tab={tab_id_by_name[name]})"
+            for name in ordered
+            if name != current
+        ]
+        return "**Autres onglets :**   " + "   ·   ".join(parts)
+
+    # Nav placée juste au-dessus du bloc Sources / formulaire de retour.
+    nav_cards = [
+        _txt(real_T2, 140, 0, 24, 2, _nav_md("Paris")),
+        _txt(real_T3, 120, 0, 24, 2, _nav_md("Petite couronne")),
+        _txt(real_T1, 129, 0, 24, 2, _nav_md("Île-de-France")),
+    ]
+
+    tabs_spec_real = [
+        {"id": real_T2, "name": "Paris"},
+        {"id": real_T3, "name": "Petite couronne"},
+        {"id": real_T1, "name": "Île-de-France"},
+    ]
+
+    r = client.put(
+        f"/api/dashboard/{dash_id}",
+        json={
+            "name": "Panorama Île-de-France",
+            "description": "Immobilier, revenus, loyers, démographie et sécurité par commune (2020–2025).",
+            "tabs": tabs_spec_real,
+            "parameters": [PC_INCLUDE_PARIS_PARAMETER],
+            "dashcards": remapped_dashcards + nav_cards,
+        },
+    )
+    r.raise_for_status()
+    print("  3 onglets, 45 cartes, 11 sections, nav inter-onglets")
     return dash_id
 
 
@@ -1791,7 +2000,7 @@ def main() -> None:
     # Si l'instance a ete setup avec un ancien site-name (ex: "France Aujourd'hui"),
     # on le force a la valeur courante. PUT idempotent.
     try:
-        client.put("/api/setting/site-name", json={"value": "Panorama Ile-de-France"})
+        client.put("/api/setting/site-name", json={"value": "Panorama Île-de-France"})
     except Exception:
         pass
 
@@ -1807,7 +2016,7 @@ def main() -> None:
     print(f"  Dashboard : {METABASE_URL}/dashboard/{dash_id}")
     # On n'affiche plus le mot de passe en clair (prod).
     print(f"  Admin : {ADMIN_EMAIL} (mdp dans .env / MB_ADMIN_PASSWORD)")
-    print(f"  3 onglets : Ile-de-France | Paris | Petite couronne")
+    print("  3 onglets : Paris | Petite couronne | Île-de-France")
     print(f"{'═' * 55}\n")
 
     client.close()
