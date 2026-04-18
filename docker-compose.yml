@@ -30,6 +30,8 @@ services:
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-metabase}
     volumes:
       - pg-data:/var/lib/postgresql/data
+      # Scripts SQL exécutés au premier boot (volume vide) : crée metabase_app.
+      - ./postgres-init:/docker-entrypoint-initdb.d:ro
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-metabase} -d ${POSTGRES_DB:-panorama_idf}"]
       interval: 5s
