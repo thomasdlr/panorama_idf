@@ -1,6 +1,34 @@
 # Déploiement — Panorama IDF avec Dokploy
 
-Guide pas-à-pas pour déployer la stack (Metabase + landing page) sur un VPS Hetzner, domaine `tdelard.me` (IONOS), orchestration via [Dokploy](https://dokploy.com). Dokploy remplace Caddy et gère Traefik + Let's Encrypt + deploy auto sur `git push`.
+Guide pas-à-pas pour déployer la stack (Metabase + landing page + admin + analytics) sur un VPS Hetzner, domaine `tdelard.me` (IONOS), orchestration via [Dokploy](https://dokploy.com). Dokploy remplace Caddy (qui ne sert qu'en dev local) et gère Traefik + Let's Encrypt + deploy auto sur `git push`.
+
+## Architecture
+
+```
+                            ┌─────────────────────────────┐
+                            │        VPS (Dokploy)        │
+                            │                             │
+  Internet ─► :443 ─► Traefik ─┬─► tdelard.me         ─► landing
+                            │  ├─► metabase.tdelard.me ─► metabase
+                            │  └─► admin.tdelard.me    ─► admin
+                            │                             │
+                            │  Internes : postgres,       │
+                            │  geojson, pipeline (1-shot) │
+                            └─────────────────────────────┘
+
+  Dev local :  127.0.0.1:3000 ─► caddy ─┬─► /          metabase
+                                        ├─► /landing   landing
+                                        ├─► /admin     admin
+                                        └─► /geojson   geojson
+```
+
+## Services et profils
+
+| Profil Compose | Services inclus                                   | Quand                                      |
+|----------------|---------------------------------------------------|--------------------------------------------|
+| (aucun)        | postgres, metabase, geojson, landing, admin       | Prod Dokploy (par défaut)                  |
+| `local`        | + caddy                                            | Dev local : `docker compose --profile local up -d` |
+| `pipeline`     | + pipeline (one-shot)                              | Refresh data : `run --rm pipeline`         |
 
 ---
 
@@ -14,17 +42,18 @@ Guide pas-à-pas pour déployer la stack (Metabase + landing page) sur un VPS He
 
 ## 2. DNS (IONOS)
 
-Pointe 3 entrées vers l'IP du VPS :
+Pointe 4 entrées vers l'IP du VPS :
 
 | Type | Nom       | Valeur        |
 |------|-----------|---------------|
 | A    | `@`       | IP du VPS     |
 | A    | `www`     | IP du VPS     |
 | A    | `metabase`| IP du VPS     |
+| A    | `admin`   | IP du VPS     |
 
 Vérification :
 ```bash
-dig tdelard.me metabase.tdelard.me +short   # les deux doivent répondre avec l'IP du VPS
+dig tdelard.me metabase.tdelard.me admin.tdelard.me +short
 ```
 
 ---
@@ -58,27 +87,39 @@ Pour exposer l'UI Dokploy en HTTPS plus tard : configure `dokploy.tdelard.me` da
 
 ### 4.2 Variables d'environnement
 
-**Environment** → paste :
+**Environment** → paste (`openssl rand -base64 24` pour générer les secrets) :
 ```
 METABASE_SITE_URL=https://metabase.tdelard.me
+DASHBOARD_URL=https://metabase.tdelard.me/public/dashboard/<UUID>
+UMAMI_WEBSITE_ID=cb65cc2e-dd91-461b-84be-48d5e43feebf
+
 POSTGRES_DB=panorama_idf
 POSTGRES_USER=metabase
-POSTGRES_PASSWORD=<openssl rand -base64 24>
+POSTGRES_PASSWORD=<secret>
+
 MB_ADMIN_EMAIL=admin@tdelard.me
-MB_ADMIN_PASSWORD=<openssl rand -base64 24>
+MB_ADMIN_PASSWORD=<secret>
+
+ADMIN_USER=admin
+ADMIN_PASSWORD=<secret>
 ```
+
+⚠ **À NE JAMAIS mettre en `.env` local** : `UMAMI_WEBSITE_ID` (pollue les stats prod), les secrets (évidemment), les `*_SITE_URL` prod. En local, les defaults du `docker-compose.yml` suffisent.
 
 ### 4.3 Domaines (Traefik)
 
-**Domains** → ajoute 2 entrées :
+**Domains** → ajoute les entrées :
 
 | Service    | Host                    | Port | HTTPS | Path |
 |------------|-------------------------|------|-------|------|
 | `landing`  | `tdelard.me`            | 80   | ✓     | `/`  |
 | `landing`  | `www.tdelard.me`        | 80   | ✓     | `/`  |
 | `metabase` | `metabase.tdelard.me`   | 3000 | ✓     | `/`  |
+| `admin`    | `admin.tdelard.me`      | 80   | ✓     | `/`  |
 
 Dokploy génère automatiquement les certs Let's Encrypt.
+
+Le service `caddy` a `profiles: ["local"]` → Dokploy l'ignore par défaut.
 
 ### 4.4 Premier déploiement
 
@@ -119,7 +160,7 @@ Le script force `MB_ENABLE_PUBLIC_SHARING=true` dès le premier démarrage, donc
 2. Ouvre le dashboard **Panorama Ile-de-France**.
 3. **Sharing (icône flèche)** → **Create a public link** → copie l'URL.
 
-L'UUID public dans `landing/index.html` est déjà câblé sur ton dashboard existant (`10c1915f-eb39-42a6-b630-e708ec58f147`). Si tu crées un nouveau dashboard public (UUID différent), **édite `landing/index.html`** et push — Dokploy redéploie tout seul.
+L'URL cible du bouton « Projet en vedette » de la landing est pilotée par la variable `DASHBOARD_URL` (injectée dans le HTML au démarrage du container). Si tu crées un nouveau dashboard public (UUID différent), **modifie `DASHBOARD_URL` dans Dokploy** et redéploie — pas besoin de toucher au code.
 
 ---
 
@@ -166,7 +207,19 @@ Rapatrie les backups vers Backblaze B2 ou un autre bucket.
 
 ## 10. Dev local (sans Dokploy)
 
-Identique à avant : `docker compose up -d` (sans `--profile pipeline`) démarre postgres/metabase/geojson/landing. Les ports `3000` (metabase) et `5480` (postgres) sont bindés sur `127.0.0.1` donc accessibles en local.
+```bash
+docker compose --profile local up -d
+```
+
+Le profil `local` active Caddy, qui route `localhost:3000` :
+- `/` → Metabase
+- `/landing/` → landing portfolio
+- `/admin/` → admin (basic auth `admin` / `dev-change-me`)
+- `/geojson/...` → fichiers GeoJSON pour les cartes
+
+Sans `--profile local`, tu démarres postgres/metabase/landing/admin mais sans reverse proxy (chaque service isolé sur son réseau Docker).
+
+Aucun `.env` requis : les defaults du `docker-compose.yml` suffisent. Umami désactivé (ID vide) → pas de tracking des visites locales.
 
 Pour lancer le pipeline en local :
 ```bash
@@ -175,7 +228,7 @@ docker compose --profile pipeline run --rm pipeline
 uv run ingest && cd dbt && uv run dbt build --profiles-dir . && cd .. && uv run python scripts/setup_metabase.py
 ```
 
-Landing page en local : `http://localhost:8080` si tu ajoutes `ports: ["8080:80"]` au service `landing` (pas activé par défaut pour éviter la collision avec Dokploy).
+`setup_metabase.py` passe lui-même `--profile local` au `docker compose up` qu'il lance en début de script.
 
 ---
 

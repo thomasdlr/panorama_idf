@@ -5,5 +5,13 @@ http://localhost:3000 {
         reverse_proxy geojson:80
     }
 
+    handle_path /admin* {
+        reverse_proxy admin:80
+    }
+
+    handle_path /landing* {
+        reverse_proxy landing:80
+    }
+
     reverse_proxy metabase:3000
 }

@@ -5,6 +5,10 @@
 #   - metabase  : dashboard → sous-domaine metabase.tdelard.me en prod
 #   - geojson   : nginx servant les GeoJSON des cartes
 #   - landing   : page d'accueil → tdelard.me en prod
+#                 (injecte UMAMI_WEBSITE_ID au démarrage pour l'analytics)
+#   - admin     : page d'admin avec liens vers Metabase/Umami/Tally/GitHub
+#                 → admin.tdelard.me en prod, protégée par basic auth
+#                 (variables ADMIN_USER, ADMIN_PASSWORD dans .env)
 #
 # Service one-shot (profile "pipeline") :
 #   - pipeline  : ingest + dbt build + setup Metabase.
@@ -70,6 +74,22 @@ services:
       context: ./landing
     expose:
       - "80"
+    environment:
+      UMAMI_WEBSITE_ID: ${UMAMI_WEBSITE_ID:-}
+      # URL du dashboard public cible du bouton « Projet en vedette ».
+      # En local, Caddy expose Metabase sur localhost:3000.
+      DASHBOARD_URL: ${DASHBOARD_URL:-http://localhost:3000/dashboard/2}
+    restart: unless-stopped
+
+  admin:
+    build:
+      context: ./admin
+    expose:
+      - "80"
+    environment:
+      ADMIN_USER: ${ADMIN_USER:-admin}
+      # En local par défaut : "dev-change-me". En prod, surcharger via .env.
+      ADMIN_PASSWORD: ${ADMIN_PASSWORD:-dev-change-me}
     restart: unless-stopped
 
   pipeline:
@@ -96,7 +116,11 @@ services:
       - ./data:/app/data
     restart: "no"
 
+  # Caddy = reverse proxy LOCAL uniquement (profil "local").
+  # En prod, c'est Traefik (piloté par Dokploy) qui fait le routing.
+  # Démarrage local : `docker compose --profile local up -d`
   caddy:
+    profiles: ["local"]
     image: caddy:2-alpine
     container_name: panorama_idf_caddy
     ports:
@@ -108,6 +132,8 @@ services:
     depends_on:
       - metabase
       - geojson
+      - admin
+      - landing
 
 volumes:
   pg-data:

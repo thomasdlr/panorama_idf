@@ -102,10 +102,16 @@ LATEST_YEAR = 2025
 
 
 def _compose_cmd(*args: str) -> list[str]:
-    """Build a `docker compose -f <file> ...` command using the configured compose file."""
+    """Build a `docker compose -f <file> --profile local ...` command.
+
+    Le profil `local` active Caddy (reverse proxy de dev) sans impacter la
+    prod : en prod, c'est Dokploy/Traefik qui route, donc le pipeline tourne
+    avec SKIP_COMPOSE_START=1 et ne passe jamais par ici.
+    """
+    base = ["-f", COMPOSE_FILE, "--profile", "local"]
     if shutil.which("docker-compose"):
-        return ["docker-compose", "-f", COMPOSE_FILE, *args]
-    return ["docker", "compose", "-f", COMPOSE_FILE, *args]
+        return ["docker-compose", *base, *args]
+    return ["docker", "compose", *base, *args]
 
 
 def _wait_postgres_tcp() -> bool:

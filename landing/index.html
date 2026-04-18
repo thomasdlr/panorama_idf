@@ -9,6 +9,8 @@
       content="Portfolio de Thomas de Lard, ingénieur data. Projets et expérimentations autour de l'open data et des pipelines analytiques."
     />
     <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'%3E%3Ctext y='.9em' font-size='90'%3E%F0%9F%97%BA%EF%B8%8F%3C/text%3E%3C/svg%3E" />
+    <!-- Umami analytics (cloud.umami.is). UMAMI_WEBSITE_ID est injecté au démarrage. -->
+    <script defer src="https://cloud.umami.is/script.js" data-website-id="${UMAMI_WEBSITE_ID}"></script>
     <script src="https://cdn.tailwindcss.com"></script>
     <style>
       body {
@@ -87,7 +89,7 @@
           </div>
 
           <a
-            href="https://tdelard.me/public/dashboard/10c1915f-eb39-42a6-b630-e708ec58f147"
+            href="${DASHBOARD_URL}"
             class="group relative block overflow-hidden rounded-2xl bg-neutral-900 p-8 text-white shadow-lg ring-1 ring-black/5 transition hover:shadow-xl sm:p-12"
           >
             <div class="absolute inset-0 bg-gradient-to-br from-blue-600/25 via-transparent to-emerald-500/25 opacity-80"></div>
