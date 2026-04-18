@@ -470,14 +470,18 @@ def export_metro_to_postgres() -> None:
     con.execute("INSTALL postgres; LOAD postgres;")
     con.execute(f"ATTACH '{PG_CONN}' AS pg (TYPE POSTGRES)")
 
+    # Une ligne par (station, ligne) — permet de compter les lignes uniques
+    # qui desservent une commune (et pas la somme des lignes × stations, qui
+    # gonfle artificiellement les arrondissements denses comme Gare du Nord).
     con.execute(
-        "CREATE TABLE stops (name VARCHAR, lat DOUBLE, lon DOUBLE, nb_lines INTEGER, modes VARCHAR)"
+        "CREATE TABLE stops (name VARCHAR, lat DOUBLE, lon DOUBLE, line VARCHAR)"
     )
     con.executemany(
-        "INSERT INTO stops VALUES (?, ?, ?, ?, ?)",
+        "INSERT INTO stops VALUES (?, ?, ?, ?)",
         [
-            (n, d["lat"], d["lon"], len(d["lines"]), "+".join(sorted(d["modes"])))
+            (n, d["lat"], d["lon"], line)
             for n, d in stations.items()
+            for line in d["lines"]
         ],
     )
 
@@ -492,20 +496,22 @@ def export_metro_to_postgres() -> None:
             SELECT code, nom, ST_Area(geom) * 111.12 * 111.12 * 0.6583 as area_km2
             FROM geo
         ),
-        counts AS (
-            SELECT g.code as code_commune, g.nom as nom_commune,
-                   count(*)::integer as nb_stations,
-                   sum(s.nb_lines)::integer as nb_lignes_accessibles
+        station_in_commune AS (
+            SELECT DISTINCT s.name, s.line,
+                   g.code as code_commune, g.nom as nom_commune
             FROM stops s
             JOIN geo g ON ST_Contains(g.geom, ST_Point(s.lon, s.lat))
-            GROUP BY g.code, g.nom
         )
-        SELECT c.code_commune, c.nom_commune as nom_commune,
-               c.nb_stations, c.nb_lignes_accessibles,
+        SELECT sc.code_commune, sc.nom_commune,
+               count(DISTINCT sc.name)::integer as nb_stations,
+               count(DISTINCT sc.line)::integer as nb_lignes_uniques,
                round(a.area_km2::numeric, 2) as superficie_km2,
-               round((c.nb_stations / a.area_km2)::numeric, 1) as stations_par_km2
-        FROM counts c JOIN areas a ON c.code_commune = a.code
-        ORDER BY c.code_commune
+               round((count(DISTINCT sc.name) / a.area_km2)::numeric, 1)
+                   as stations_par_km2
+        FROM station_in_commune sc
+        JOIN areas a ON sc.code_commune = a.code
+        GROUP BY sc.code_commune, sc.nom_commune, a.area_km2
+        ORDER BY sc.code_commune
     """
     )
     rows = con.execute("SELECT count(*) FROM pg.public.metro_stations").fetchone()[0]
@@ -1081,13 +1087,15 @@ GROUP BY "Département" ORDER BY "Département"
         db_id,
         "Synthèse par zone",
         "table",
-        """SELECT zone_idf, annee::text AS "Année", nb_communes, nb_ventes_total,
+        """SELECT zone_idf AS "Zone",
+       annee::text AS "Année",
+       nb_communes AS "Nombre de communes",
+       nb_ventes_total AS "Nombre de ventes",
        round(prix_m2_median_pondere::numeric) AS "Prix au m² (€)",
        round(niveau_vie_median_pondere::numeric) AS "Niveau de vie médian (€)",
        round(ratio_achat_revenu_pondere::numeric, 1) AS "Ratio prix / revenu (années)",
        round((part_25_39_ponderee * 100)::numeric, 1) AS "Part des 25–39 ans (%)"
-FROM mart_immo__synthese_zone ORDER BY "Année" DESC, "Zone"
-""",
+FROM mart_immo__synthese_zone ORDER BY "Année" DESC, "Zone" """,
         "Agrégats pondérés par zone. Prix DVF 2020-2025, revenus Filosofi 2021, démographie RP 2021.",
     )
 
@@ -1113,9 +1121,10 @@ FROM mart_immo__synthese_zone ORDER BY "Année", "Zone"
         db_id,
         "Nombre de ventes par zone",
         "bar",
-        """SELECT annee::text AS "Année", zone_idf AS "Zone", nb_ventes_total
-FROM mart_immo__synthese_zone ORDER BY "Année", "Zone"
-""",
+        """SELECT annee::text AS "Année",
+       zone_idf AS "Zone",
+       nb_ventes_total AS "Nombre de ventes"
+FROM mart_immo__synthese_zone ORDER BY "Année", "Zone" """,
         "Source : DVF 2020-2025 (Cerema).",
         viz={
             "graph.dimensions": ["Année", "Zone"],
@@ -1204,13 +1213,12 @@ GROUP BY "Département" ORDER BY "Département"
         db_id,
         "Loyer vs mensualité d'achat au m² par zone",
         "bar",
-        f"""SELECT zone_idf,
+        f"""SELECT zone_idf AS "Zone",
        round((sum(loyer_m2_median * nb_ventes) / nullif(sum(nb_ventes), 0))::numeric, 1) AS "Loyer au m² (€/mois)",
        round((sum(prix_m2_median * nb_ventes) / nullif(sum(nb_ventes), 0) / 12)::numeric, 0) AS "Mensualité d'achat au m² (€)"
 FROM mart_immo__accessibilite_commune
 WHERE annee = {Y} AND loyer_m2_median IS NOT NULL
-GROUP BY "Zone" ORDER BY "Zone"
-""",
+GROUP BY "Zone" ORDER BY "Zone" """,
         f"Loyer mensuel ANIL 2025 vs mensualité d'achat (1/12 du prix DVF {Y}).",
         viz={
             "graph.dimensions": ["Zone"],
@@ -1488,7 +1496,8 @@ GROUP BY "Arrondissement", "Catégorie" ORDER BY "Arrondissement", "Faits pour 1
         db_id,
         "Densité pistes cyclables — Paris (km/km²)",
         "map",
-        """SELECT code_commune AS "Code commune", km_par_km2
+        """SELECT code_commune AS "Code commune",
+       km_par_km2 AS "Pistes cyclables (km/km²)"
 FROM cyclable_paris""",
         "Linéaire d'aménagements cyclables par km². Source : Paris OpenData (snapshot).",
         map_viz("paris_arr", "Pistes cyclables (km/km²)"),
@@ -1499,7 +1508,9 @@ FROM cyclable_paris""",
         db_id,
         "Densité métro + RER — Paris (stations/km²)",
         "map",
-        """SELECT code_commune AS "Code commune", stations_par_km2, nb_lignes_accessibles
+        """SELECT code_commune AS "Code commune",
+       stations_par_km2 AS "Stations par km²",
+       nb_lignes_uniques AS "Lignes desservies"
 FROM metro_stations WHERE code_commune LIKE '751%'""",
         "Stations métro et RER par km² (uniques par nom). Source : IDFM Open Data.",
         map_viz("paris_arr", "Stations par km²"),
@@ -1523,7 +1534,8 @@ WHERE annee = {Y} AND code_commune LIKE '751%' AND part_60_plus IS NOT NULL""",
         db_id,
         "Part des diplômés du supérieur — Paris",
         "map",
-        f"""SELECT a.code_commune AS "Code commune", d.part_etudes_sup
+        f"""SELECT a.code_commune AS "Code commune",
+       d.part_etudes_sup AS "Diplômés du supérieur (%)"
 FROM mart_immo__accessibilite_commune a
 JOIN diplomes_communes d ON a.code_commune = d.code_commune
 WHERE a.annee = {Y} AND a.code_commune LIKE '751%'""",
@@ -1536,7 +1548,8 @@ WHERE a.annee = {Y} AND a.code_commune LIKE '751%'""",
         db_id,
         "Part sans diplôme — Paris",
         "map",
-        f"""SELECT a.code_commune AS "Code commune", d.part_sans_diplome
+        f"""SELECT a.code_commune AS "Code commune",
+       d.part_sans_diplome AS "Sans diplôme (%)"
 FROM mart_immo__accessibilite_commune a
 JOIN diplomes_communes d ON a.code_commune = d.code_commune
 WHERE a.annee = {Y} AND a.code_commune LIKE '751%'""",
@@ -1690,7 +1703,8 @@ GROUP BY "Catégorie" ORDER BY "Faits pour 1 000 hab." DESC""",
         db_id,
         "Densité métro + RER — Petite couronne (stations/km²)",
         "map",
-        f"""SELECT code_commune AS "Code commune", stations_par_km2
+        f"""SELECT code_commune AS "Code commune",
+       stations_par_km2 AS "Stations par km²"
 FROM metro_stations
 WHERE {_pc_scope(code_field='code_commune')}""",
         "Stations métro et RER par km². Source : IDFM Open Data.",
@@ -1719,7 +1733,8 @@ WHERE annee = {Y}
         db_id,
         "Part des diplômés du supérieur — Petite couronne",
         "map",
-        f"""SELECT a.code_commune AS "Code commune", d.part_etudes_sup
+        f"""SELECT a.code_commune AS "Code commune",
+       d.part_etudes_sup AS "Diplômés du supérieur (%)"
 FROM mart_immo__accessibilite_commune a
 JOIN diplomes_communes d ON a.code_commune = d.code_commune
 WHERE a.annee = {Y} AND {_pc_scope('a.zone_idf', 'a.code_departement')}""",
@@ -1733,7 +1748,8 @@ WHERE a.annee = {Y} AND {_pc_scope('a.zone_idf', 'a.code_departement')}""",
         db_id,
         "Part sans diplôme — Petite couronne",
         "map",
-        f"""SELECT a.code_commune AS "Code commune", d.part_sans_diplome
+        f"""SELECT a.code_commune AS "Code commune",
+       d.part_sans_diplome AS "Sans diplôme (%)"
 FROM mart_immo__accessibilite_commune a
 JOIN diplomes_communes d ON a.code_commune = d.code_commune
 WHERE a.annee = {Y} AND {_pc_scope('a.zone_idf', 'a.code_departement')}""",
@@ -1747,7 +1763,8 @@ WHERE a.annee = {Y} AND {_pc_scope('a.zone_idf', 'a.code_departement')}""",
         db_id,
         f"Part des 25–39 ans vs prix au m² par commune ({Y})",
         "scatter",
-        f"""SELECT nom_commune AS "Commune", code_departement,
+        f"""SELECT nom_commune AS "Commune",
+       code_departement AS "Département",
        round(prix_m2_median::numeric) AS "Prix au m² (€)",
        round((part_25_39 * 100)::numeric, 1) AS "Part des 25–39 ans (%)"
 FROM mart_immo__accessibilite_commune
