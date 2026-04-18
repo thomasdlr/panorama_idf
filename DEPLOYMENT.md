@@ -1,280 +1,188 @@
-# Déploiement — Panorama IDF
+# Déploiement — Panorama IDF avec Dokploy
 
-Guide pas-à-pas pour déployer le dashboard sur un VPS Hetzner avec un domaine IONOS.
-
----
-
-## 1. Acheter le domaine sur IONOS (5 min)
-
-1. Va sur [ionos.fr](https://www.ionos.fr/domaines)
-2. Cherche `tdelard.me` (ou un autre nom)
-3. Ajoute au panier **uniquement le domaine** (pas d'hébergement)
-4. Finalise l'achat (~5€/an le `.fr`)
+Guide pas-à-pas pour déployer la stack (Metabase + landing page) sur un VPS Hetzner, domaine `tdelard.me` (IONOS), orchestration via [Dokploy](https://dokploy.com). Dokploy remplace Caddy et gère Traefik + Let's Encrypt + deploy auto sur `git push`.
 
 ---
 
-## 2. Créer le VPS Hetzner (10 min)
+## 1. Pré-requis
 
-1. Crée un compte sur [hetzner.com](https://www.hetzner.com/cloud)
-2. **Projects** → **New project** → nomme-le `panorama-idf`
-3. **Add Server** :
-   - **Location** : Falkenstein (Allemagne) ou Helsinki (Finlande)
-   - **Image** : Ubuntu 24.04
-   - **Type** : **CX22** (4.35€/mo, 2 vCPU, 4GB RAM, 40GB SSD)
-   - **Networking** : IPv4 public
-   - **SSH keys** : ajoute ta clé publique (`cat ~/.ssh/id_ed25519.pub`). Si tu n'en as pas :
-     ```bash
-     ssh-keygen -t ed25519 -C "thomas.delard@gmail.com"
-     ```
-   - **Name** : `panorama-idf-prod`
-4. **Create & Buy now**
-5. Note l'**IP publique** (ex: `95.217.123.45`)
+- VPS Ubuntu 24.04 (Hetzner CX22 recommandé, 4.35 €/mois, 4 Go RAM).
+- Domaine `tdelard.me` sur IONOS (ou autre registrar).
+- Accès SSH en user non-root avec sudo (voir ancienne procédure Hetzner : `ssh-keygen`, `ufw`, disable root SSH).
 
 ---
 
-## 3. Pointer le domaine vers le VPS (5 min + propagation DNS)
+## 2. DNS (IONOS)
 
-Sur IONOS :
-1. **Mes domaines** → clique sur ton domaine → **DNS**
-2. Ajoute ou modifie :
-   - Type `A`, Nom `@`, Valeur = **IP du VPS**, TTL 3600
-   - Type `A`, Nom `www`, Valeur = **IP du VPS**, TTL 3600
-3. Supprime les autres enregistrements A existants
-4. Attends 10-30 min. Teste avec :
-   ```bash
-   dig tdelard.me +short
-   # Doit afficher l'IP du VPS
-   ```
+Pointe 3 entrées vers l'IP du VPS :
 
----
+| Type | Nom       | Valeur        |
+|------|-----------|---------------|
+| A    | `@`       | IP du VPS     |
+| A    | `www`     | IP du VPS     |
+| A    | `metabase`| IP du VPS     |
 
-## 4. Durcir le VPS (15 min)
-
-Connexion SSH en root :
+Vérification :
 ```bash
-ssh root@IP_DU_VPS
-```
-
-### Mettre à jour et créer un user non-root
-
-```bash
-apt update && apt upgrade -y
-adduser thomas   # choisis un mot de passe, laisse les autres champs vides
-usermod -aG sudo thomas
-rsync --archive --chown=thomas:thomas ~/.ssh /home/thomas
-```
-
-### Installer Docker
-
-```bash
-curl -fsSL https://get.docker.com | sh
-usermod -aG docker thomas
-```
-
-### Firewall
-
-```bash
-ufw allow OpenSSH
-ufw allow 80
-ufw allow 443
-ufw enable   # répond y
-```
-
-### Désactiver root SSH et mot de passe SSH
-
-```bash
-sed -i 's/^#*PermitRootLogin.*/PermitRootLogin no/' /etc/ssh/sshd_config
-sed -i 's/^#*PasswordAuthentication.*/PasswordAuthentication no/' /etc/ssh/sshd_config
-systemctl restart sshd
-```
-
-Déconnecte-toi et reconnecte-toi en `thomas` :
-```bash
-exit
-ssh thomas@IP_DU_VPS
+dig tdelard.me metabase.tdelard.me +short   # les deux doivent répondre avec l'IP du VPS
 ```
 
 ---
 
-## 5. Cloner le projet (5 min)
+## 3. Installer Dokploy sur le VPS
+
+Sur le VPS (user avec sudo + Docker déjà installé) :
 
 ```bash
-cd ~
-git clone https://github.com/thomasdlr/panorama_idf.git
-cd panorama_idf
+curl -sSL https://dokploy.com/install.sh | sh
 ```
 
-### Installer uv
+L'installation prend ~2 min. Dokploy écoute sur le port **3000** par défaut pour son UI.
 
-```bash
-curl -LsSf https://astral.sh/uv/install.sh | sh
-source ~/.bashrc
+Ouvre `http://IP_DU_VPS:3000`, crée le compte admin (email + mot de passe fort).
+
+⚠ **Collision de port** : Metabase utilisait aussi le 3000. Dans notre `docker-compose.yml`, Metabase est bindé sur `127.0.0.1:3000` **uniquement** (loopback) et exposé publiquement via Traefik sur `metabase.tdelard.me`. Dokploy et Metabase cohabitent sans conflit.
+
+Pour exposer l'UI Dokploy en HTTPS plus tard : configure `dokploy.tdelard.me` dans Dokploy lui-même (Settings → Server) ; optionnel.
+
+---
+
+## 4. Créer l'application dans Dokploy
+
+### 4.1 Project + Git source
+
+1. Dokploy UI → **Projects** → **Create project** → `panorama-idf`.
+2. Dans le project → **Create Service** → **Application** → type **Docker Compose**.
+3. **Source** : GitHub (connecte ton compte) → repo `thomasdlr/panorama_idf` → branche `main`.
+4. **Compose path** : `docker-compose.yml` (défaut).
+
+### 4.2 Variables d'environnement
+
+**Environment** → paste :
+```
+METABASE_SITE_URL=https://metabase.tdelard.me
+POSTGRES_DB=panorama_idf
+POSTGRES_USER=metabase
+POSTGRES_PASSWORD=<openssl rand -base64 24>
+MB_ADMIN_EMAIL=admin@tdelard.me
+MB_ADMIN_PASSWORD=<openssl rand -base64 24>
 ```
 
-### Configurer les secrets
+### 4.3 Domaines (Traefik)
+
+**Domains** → ajoute 2 entrées :
+
+| Service    | Host                    | Port | HTTPS | Path |
+|------------|-------------------------|------|-------|------|
+| `landing`  | `tdelard.me`            | 80   | ✓     | `/`  |
+| `landing`  | `www.tdelard.me`        | 80   | ✓     | `/`  |
+| `metabase` | `metabase.tdelard.me`   | 3000 | ✓     | `/`  |
+
+Dokploy génère automatiquement les certs Let's Encrypt.
+
+### 4.4 Premier déploiement
+
+**Deploy** → Dokploy clone le repo, build les images (`landing` + `pipeline`), démarre `postgres`, `metabase`, `geojson`, `landing`. Durée : ~3 min (download images + build).
+
+À ce stade `tdelard.me` affiche la landing, mais `metabase.tdelard.me` montre un Metabase vierge (pas encore de données).
+
+---
+
+## 5. Premier run du pipeline (ingest + dbt + dashboard)
+
+Le service `pipeline` n'est pas démarré automatiquement (profile `pipeline`). Il faut le lancer une première fois à la main pour ingérer les données et créer le dashboard.
+
+SSH sur le VPS :
 
 ```bash
-cp .env.example .env
-# Génère des mots de passe forts
-echo "POSTGRES_PASSWORD=$(openssl rand -base64 24)" >> .env
-echo "MB_ADMIN_PASSWORD=$(openssl rand -base64 24)" >> .env
-nano .env   # édite DOMAIN, EMAIL, vérifie le reste
+# Dokploy clone les repos dans /etc/dokploy/compose/<project-id>/code/
+cd /etc/dokploy/compose/panorama-idf-<hash>/code
+docker compose --profile pipeline run --rm pipeline
+```
+
+Durée : **~30-40 min** (téléchargement ~500 MB de données INSEE/DVF, dbt build, setup Metabase).
+
+Tu peux suivre en live. À la fin tu verras :
+```
+✓ Pipeline terminé
+```
+
+Vérifie `https://metabase.tdelard.me/dashboard/6` — dashboard complet avec 3 onglets.
+
+---
+
+## 6. Rendre le dashboard public
+
+Le script force `MB_ENABLE_PUBLIC_SHARING=true` dès le premier démarrage, donc :
+
+1. `https://metabase.tdelard.me` → login admin.
+2. Ouvre le dashboard **Panorama Ile-de-France**.
+3. **Sharing (icône flèche)** → **Create a public link** → copie l'URL.
+
+L'UUID public dans `landing/index.html` est déjà câblé sur ton dashboard existant (`10c1915f-eb39-42a6-b630-e708ec58f147`). Si tu crées un nouveau dashboard public (UUID différent), **édite `landing/index.html`** et push — Dokploy redéploie tout seul.
+
+---
+
+## 7. Refresh mensuel automatique (Dokploy Schedules)
+
+Les données INSEE / DVF / Filosofi ne sont publiées qu'une fois par an ou au mieux trimestriellement, mais les sources Vélib / pistes cyclables sont temps réel. Un refresh mensuel suffit largement.
+
+Dans Dokploy : **Project → panorama-idf → Schedules → Create Schedule**.
+
+| Champ       | Valeur                                              |
+|-------------|-----------------------------------------------------|
+| Name        | Refresh mensuel                                     |
+| Schedule    | `0 3 1 * *` (le 1er de chaque mois à 3h)            |
+| Command     | `docker compose --profile pipeline run --rm pipeline` |
+| Working dir | Racine du repo cloné par Dokploy                    |
+
+Si Dokploy ne propose pas de "working dir", utilise la forme absolue :
+```
+cd /etc/dokploy/compose/panorama-idf-<hash>/code && docker compose --profile pipeline run --rm pipeline
 ```
 
 ---
 
-## 6. Ingérer les données (30 min)
+## 8. Deploy automatique sur `git push`
 
-```bash
-uv sync
-uv run ingest
-```
+Dokploy → **Project → Webhook**. Copie l'URL et ajoute-la comme webhook GitHub (`Settings → Webhooks`) avec content-type `application/json` et événement `push`. Désormais chaque push sur `main` → redeploy auto (postgres, metabase, geojson, landing restart ; pipeline non touché, données préservées dans `./data/`).
 
-Ça télécharge ~500 MB de données INSEE / DVF / etc. Prends un café.
+⚠ Le dossier `data/` est un **bind mount** (`./data:/app/data`). Les données DuckDB persistent entre deploys. Si tu changes la structure du repo, pense à sauvegarder `data/panorama_idf.duckdb` avant d'expérimenter.
 
 ---
 
-## 7. Builder les modèles dbt (2 min)
+## 9. Backup
 
-```bash
-cd dbt
-uv run dbt seed --profiles-dir .
-uv run dbt build --profiles-dir .
-cd ..
-```
-
----
-
-## 8. Démarrer Docker + Metabase + Caddy (5 min)
-
-```bash
-docker compose -f docker-compose.prod.yml --env-file .env up -d
-```
-
-Vérifie que tout tourne :
-```bash
-docker compose -f docker-compose.prod.yml ps
-```
-
-Caddy va automatiquement obtenir un certificat HTTPS Let's Encrypt pour ton domaine. Vérifie dans ~30 secondes :
-```bash
-curl -I https://tdelard.me   # doit répondre 200
-```
-
----
-
-## 9. Créer le dashboard (5 min)
-
-`scripts/setup_metabase.py` lit automatiquement les variables d'environnement (et `.env` à la racine) : `METABASE_URL`, `MB_ADMIN_EMAIL`, `MB_ADMIN_PASSWORD`, `POSTGRES_*`, `COMPOSE_FILE`.
-
-En prod, les GeoJSON sont servis publiquement par Caddy sous `https://<DOMAIN>/geojson/...`. Le script les enregistre automatiquement avec cette URL via la variable `DOMAIN` (ou `GEOJSON_BASE_URL` si tu veux forcer une autre base URL).
-
-En prod, les ports Metabase (3000) et Postgres (5480) sont bindés sur `127.0.0.1` uniquement — le script tourne sur le VPS et peut donc les joindre via `localhost`, mais ils ne sont pas exposés sur internet.
-
-Indique au script qu'on utilise la stack de prod (sinon il essaiera `docker-compose.yml`) :
-
-```bash
-export COMPOSE_FILE=docker-compose.prod.yml
-uv run python scripts/setup_metabase.py
-```
-
----
-
-## 10. Rendre le dashboard public (3 min)
-
-1. Ouvre `https://tdelard.me` dans ton navigateur
-2. Connecte-toi avec les credentials admin
-3. **Settings (engrenage)** → **Admin settings** → **Public sharing** → **Enable**
-4. Va sur le dashboard "Panorama Ile-de-France"
-5. **Sharing (flèche)** → **Create a public link**
-6. Copie le lien public (format `https://tdelard.me/public/dashboard/UUID`)
-
-Tu peux partager ce lien, personne n'a besoin de compte pour consulter.
-
----
-
-## 11. Analytics visiteurs (optionnel, 5 min)
-
-### Option simple : Cloudflare proxy
-
-1. Crée un compte [cloudflare.com](https://cloudflare.com)
-2. **Add site** → `tdelard.me`
-3. Cloudflare te donne 2 nameservers. Retourne sur IONOS :
-   - **DNS** → **Name servers** → remplace par ceux de Cloudflare
-4. Attends la propagation (10 min à 24h)
-5. Dans Cloudflare :
-   - **DNS** → active le **proxy (orange cloud)** sur `@` et `www`
-   - **SSL/TLS** → mode **Full (strict)**
-   - **Analytics** → visites uniques, pays, bots, etc.
-
-### Option plus fine : GoAccess sur les logs Caddy
-
-```bash
-ssh thomas@IP_DU_VPS
-sudo apt install goaccess -y
-
-# Génère un rapport HTML depuis les logs Caddy
-docker exec panorama_idf_caddy cat /data/access.log | \
-  goaccess - --log-format=CADDY -o /tmp/stats.html
-```
-
----
-
-## Maintenance
-
-### Mettre à jour le dashboard
-```bash
-cd ~/panorama_idf
-git pull
-set -a && source .env && set +a
-cd dbt && uv run dbt build --profiles-dir . && cd ..
-uv run python scripts/setup_metabase.py
-```
-
-### Redémarrer les services
-```bash
-docker compose -f docker-compose.prod.yml restart
-```
-
-### Voir les logs
-```bash
-docker compose -f docker-compose.prod.yml logs -f metabase
-docker compose -f docker-compose.prod.yml logs -f caddy
-```
-
-### Backup DuckDB + PostgreSQL
-
-Un script `scripts/backup.sh` automatise tout (DuckDB + PG marts + PG Metabase appdb, gzippés, rotation 7 jours) :
-
-```bash
-./scripts/backup.sh
-# → dumps dans ~/backups/{duckdb,pg-marts,pg-metabase}-YYYY-MM-DD.{duckdb.gz,sql.gz}
-```
-
-Planifier en cron (tous les jours à 3h du matin) :
+Un script `scripts/backup.sh` peut dumper `data/panorama_idf.duckdb` + les DB postgres. Lance-le en cron sur le VPS (hors Dokploy) :
 
 ```bash
 crontab -e
-# Ajouter :
-0 3 * * * cd /home/thomas/panorama_idf && ./scripts/backup.sh >> logs/backup.log 2>&1
+0 4 * * * cd /etc/dokploy/compose/panorama-idf-<hash>/code && ./scripts/backup.sh >> /var/log/panorama-backup.log 2>&1
 ```
 
-Rapatrier régulièrement en local ou pousser vers un bucket (Backblaze B2, ~0.5 €/mois pour des dumps gzippés) :
+Rapatrie les backups vers Backblaze B2 ou un autre bucket.
 
+---
+
+## 10. Dev local (sans Dokploy)
+
+Identique à avant : `docker compose up -d` (sans `--profile pipeline`) démarre postgres/metabase/geojson/landing. Les ports `3000` (metabase) et `5480` (postgres) sont bindés sur `127.0.0.1` donc accessibles en local.
+
+Pour lancer le pipeline en local :
 ```bash
-# Rapatriement manuel
-scp thomas@IP:~/backups/* ./local-backups/
-
-# Ou sync auto vers B2 (ajouter un second cron)
-# 0 4 * * * rclone sync ~/backups b2:mon-bucket-backups --min-age 1h
+docker compose --profile pipeline run --rm pipeline
+# OU en natif (plus rapide en dev) :
+uv run ingest && cd dbt && uv run dbt build --profiles-dir . && cd .. && uv run python scripts/setup_metabase.py
 ```
+
+Landing page en local : `http://localhost:8080` si tu ajoutes `ports: ["8080:80"]` au service `landing` (pas activé par défaut pour éviter la collision avec Dokploy).
 
 ---
 
 ## Coûts récurrents
 
-- Hetzner CX22 : **4.35€/mois** (~52€/an)
-- Domaine `.fr` IONOS : **~5-8€/an** après la 1ère année promo
-- Cloudflare : **0€** (tier gratuit)
+- Hetzner CX22 : **4.35 €/mois**
+- Domaine `.me` IONOS : **~15 €/an**
+- Dokploy : gratuit (self-hosted)
 
-**Total : ~60€/an**.
+**Total : ~80 €/an.**

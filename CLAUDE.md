@@ -272,4 +272,9 @@ Le dashboard est accessible sur le port 3000. Pour HTTPS, ajouter un reverse pro
 - **Ajouter un test** pour toute nouvelle colonne critique (not_null au minimum)
 - **Utiliser `{{ var('X') }}`** pour tout seuil de filtrage
 - **Vérifier avec `dbt build`** que rien n'est cassé avant de considérer une tâche terminée
+- **Ne jamais exécuter `git commit`, `git add`, `git push` ou toute commande qui modifie l'historique git.** À la place, après chaque feature ou groupe de changements cohérent, proposer une commande prête à copier-coller, au format :
+  ```
+  git commit -am "description courte en français du pourquoi"
+  ```
+  L'utilisateur décide s'il veut l'exécuter.
 - **Commits en français**, style descriptif du « pourquoi » plutôt que du « quoi »

@@ -57,9 +57,11 @@ PG_CONN = os.environ.get(
     f"host={_pg_host} port={_pg_port} dbname={_pg_db} user={_pg_user} password={_pg_password}",
 )
 
-# En prod on passe COMPOSE_FILE=docker-compose.prod.yml pour que start_services()
-# lance la bonne stack. Par defaut = docker-compose.yml (dev).
+# COMPOSE_FILE : fichier compose utilisé pour piloter postgres/metabase depuis l'hôte.
+# En mode container (Dokploy pipeline, SKIP_COMPOSE_START=1) on saute cette orchestration :
+# postgres et metabase tournent déjà, on se connecte directement en TCP.
 COMPOSE_FILE = os.environ.get("COMPOSE_FILE", "docker-compose.yml")
+SKIP_COMPOSE_START = os.environ.get("SKIP_COMPOSE_START", "0") == "1"
 
 _geojson_base_url = os.environ.get("GEOJSON_BASE_URL")
 if not _geojson_base_url:
@@ -106,8 +108,58 @@ def _compose_cmd(*args: str) -> list[str]:
     return ["docker", "compose", "-f", COMPOSE_FILE, *args]
 
 
+def _wait_postgres_tcp() -> bool:
+    """Poll postgres en TCP (via le client psql) jusqu'à ce qu'il réponde."""
+    import socket
+    for _ in range(60):
+        try:
+            with socket.create_connection((_pg_host, int(_pg_port)), timeout=2):
+                pass
+        except OSError:
+            print(".", end="", flush=True)
+            time.sleep(2)
+            continue
+        # Port ouvert : vérifier que postgres accepte des requêtes.
+        env = {**os.environ, "PGPASSWORD": _pg_password}
+        result = subprocess.run(
+            ["psql", "-h", _pg_host, "-p", _pg_port, "-U", _pg_user,
+             "-d", _pg_db, "-c", "SELECT 1"],
+            capture_output=True, env=env,
+        )
+        if result.returncode == 0:
+            return True
+        print(".", end="", flush=True)
+        time.sleep(2)
+    return False
+
+
+def _ensure_metabase_app_db() -> None:
+    """Crée la DB `metabase_app` si elle n'existe pas (idempotent)."""
+    env = {**os.environ, "PGPASSWORD": _pg_password}
+    subprocess.run(
+        ["psql", "-h", _pg_host, "-p", _pg_port, "-U", _pg_user,
+         "-d", _pg_db,
+         "-c", f"CREATE DATABASE metabase_app OWNER {_pg_user};"],
+        capture_output=True, env=env,
+    )
+
+
 def start_services() -> None:
-    """Start PostgreSQL and Metabase via docker compose."""
+    """Démarre (ou attend) PostgreSQL + Metabase.
+
+    - Mode dev (défaut) : `docker compose up -d` depuis l'hôte.
+    - Mode container (SKIP_COMPOSE_START=1) : les services tournent déjà, on
+      attend juste que postgres soit joignable en TCP.
+    """
+    if SKIP_COMPOSE_START:
+        print("  Mode container : skip compose up, attente TCP postgres…", end="", flush=True)
+        if not _wait_postgres_tcp():
+            print(" TIMEOUT")
+            sys.exit(1)
+        print(" OK")
+        _ensure_metabase_app_db()
+        return
+
     subprocess.run(_compose_cmd("up", "-d"), cwd=PROJECT_ROOT, check=True)
     print("  Attente de PostgreSQL…", end="", flush=True)
     for _ in range(30):

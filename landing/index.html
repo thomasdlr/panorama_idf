@@ -1,0 +1,224 @@
+<!doctype html>
+<html lang="fr">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Thomas de Lard — Ingénieur Data</title>
+    <meta
+      name="description"
+      content="Portfolio de Thomas de Lard, ingénieur data. Projets et expérimentations autour de l'open data et des pipelines analytiques."
+    />
+    <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'%3E%3Ctext y='.9em' font-size='90'%3E%F0%9F%97%BA%EF%B8%8F%3C/text%3E%3C/svg%3E" />
+    <script src="https://cdn.tailwindcss.com"></script>
+    <style>
+      body {
+        font-family:
+          ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto,
+          "Helvetica Neue", Arial, sans-serif;
+      }
+      .grain {
+        background-image:
+          radial-gradient(
+            circle at 15% 5%,
+            rgba(59, 130, 246, 0.09),
+            transparent 45%
+          ),
+          radial-gradient(
+            circle at 85% 95%,
+            rgba(16, 185, 129, 0.07),
+            transparent 50%
+          );
+      }
+    </style>
+  </head>
+  <body class="bg-neutral-50 text-neutral-900 antialiased">
+    <div class="grain min-h-screen">
+      <div class="mx-auto max-w-5xl px-6 py-12 sm:py-16">
+        <!-- Nav -->
+        <nav class="mb-16 flex items-center justify-between">
+          <span class="text-sm font-semibold tracking-tight text-neutral-900">
+            Thomas de Lard
+          </span>
+          <div class="flex items-center gap-5 text-sm text-neutral-600">
+            <a
+              href="https://www.linkedin.com/in/thomas-de-lard/"
+              class="inline-flex items-center gap-1.5 transition hover:text-neutral-900"
+              aria-label="LinkedIn"
+            >
+              <svg class="size-4" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true">
+                <path d="M20.45 20.45h-3.56v-5.57c0-1.33-.03-3.04-1.85-3.04-1.85 0-2.13 1.44-2.13 2.94v5.67H9.35V9h3.41v1.56h.05a3.74 3.74 0 0 1 3.37-1.85c3.6 0 4.27 2.37 4.27 5.46zM5.34 7.43a2.06 2.06 0 1 1 0-4.13 2.06 2.06 0 0 1 0 4.13zM7.12 20.45H3.56V9h3.56zM22.23 0H1.77C.79 0 0 .77 0 1.72v20.56C0 23.23.79 24 1.77 24h20.45c.98 0 1.78-.77 1.78-1.72V1.72C24 .77 23.2 0 22.22 0z"/>
+              </svg>
+              LinkedIn
+            </a>
+            <a
+              href="https://github.com/thomasdlr"
+              class="inline-flex items-center gap-1.5 transition hover:text-neutral-900"
+              aria-label="GitHub"
+            >
+              <svg class="size-4" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true">
+                <path fill-rule="evenodd" clip-rule="evenodd" d="M12 2C6.477 2 2 6.484 2 12.017c0 4.425 2.865 8.18 6.839 9.504.5.092.682-.217.682-.483 0-.237-.008-.868-.013-1.703-2.782.605-3.369-1.343-3.369-1.343-.454-1.158-1.11-1.466-1.11-1.466-.908-.62.069-.608.069-.608 1.003.07 1.531 1.032 1.531 1.032.892 1.53 2.341 1.088 2.91.832.092-.647.35-1.088.636-1.338-2.22-.253-4.555-1.113-4.555-4.951 0-1.093.39-1.988 1.029-2.688-.103-.253-.446-1.272.098-2.65 0 0 .84-.27 2.75 1.026A9.564 9.564 0 0 1 12 6.844c.85.004 1.705.115 2.504.337 1.909-1.296 2.747-1.027 2.747-1.027.546 1.379.202 2.398.1 2.651.64.7 1.028 1.595 1.028 2.688 0 3.848-2.339 4.695-4.566 4.943.359.309.678.92.678 1.855 0 1.338-.012 2.419-.012 2.747 0 .268.18.58.688.482A10.02 10.02 0 0 0 22 12.017C22 6.484 17.522 2 12 2Z"/>
+              </svg>
+              GitHub
+            </a>
+          </div>
+        </nav>
+
+        <!-- Hero / bio -->
+        <header class="mb-14 sm:mb-20">
+          <h1 class="text-4xl font-semibold tracking-tight text-neutral-900 sm:text-6xl">
+            Thomas de Lard
+          </h1>
+          <p class="mt-3 text-xl text-neutral-600 sm:text-2xl">
+            Ingénieur Data · Paris
+          </p>
+          <p class="mt-6 max-w-2xl text-lg leading-relaxed text-neutral-600">
+            Ingénieur data depuis quatre ans. Je construis des pipelines en
+            Python et SQL, et je m'occupe de les faire tourner en production.
+          </p>
+        </header>
+
+        <!-- Section : Projet mis en avant -->
+        <section class="mb-10">
+          <div class="mb-6 flex items-baseline justify-between">
+            <h2 class="text-sm font-semibold uppercase tracking-widest text-neutral-500">
+              Projet en vedette
+            </h2>
+            <span class="text-xs text-neutral-400">2026</span>
+          </div>
+
+          <a
+            href="https://tdelard.me/public/dashboard/10c1915f-eb39-42a6-b630-e708ec58f147"
+            class="group relative block overflow-hidden rounded-2xl bg-neutral-900 p-8 text-white shadow-lg ring-1 ring-black/5 transition hover:shadow-xl sm:p-12"
+          >
+            <div class="absolute inset-0 bg-gradient-to-br from-blue-600/25 via-transparent to-emerald-500/25 opacity-80"></div>
+            <div class="relative">
+              <p class="mb-3 text-xs font-semibold uppercase tracking-widest text-blue-300">
+                Dashboard interactif
+              </p>
+              <h3 class="text-3xl font-semibold tracking-tight sm:text-4xl">
+                Panorama Ile-de-France
+              </h3>
+              <p class="mt-4 max-w-2xl text-base leading-relaxed text-neutral-300 sm:text-lg">
+                Un dashboard pour explorer l'Île-de-France sous plusieurs
+                angles : prix de l'immobilier, revenus, démographie, sécurité,
+                éducation, mobilité. Trois onglets — région, Paris, petite
+                couronne — avec des cartes colorées par commune et des
+                classements. Les données viennent de sources publiques (DVF,
+                INSEE, IDFM, Paris Open Data).
+              </p>
+
+              <div class="mt-8 flex flex-wrap gap-2 text-xs">
+                <span class="rounded-full bg-white/10 px-3 py-1 font-medium text-neutral-200 ring-1 ring-white/15">
+                  Python · uv
+                </span>
+                <span class="rounded-full bg-white/10 px-3 py-1 font-medium text-neutral-200 ring-1 ring-white/15">
+                  DuckDB
+                </span>
+                <span class="rounded-full bg-white/10 px-3 py-1 font-medium text-neutral-200 ring-1 ring-white/15">
+                  dbt
+                </span>
+                <span class="rounded-full bg-white/10 px-3 py-1 font-medium text-neutral-200 ring-1 ring-white/15">
+                  PostgreSQL
+                </span>
+                <span class="rounded-full bg-white/10 px-3 py-1 font-medium text-neutral-200 ring-1 ring-white/15">
+                  Metabase
+                </span>
+                <span class="rounded-full bg-white/10 px-3 py-1 font-medium text-neutral-200 ring-1 ring-white/15">
+                  Docker · Dokploy
+                </span>
+              </div>
+
+              <span
+                class="mt-8 inline-flex items-center gap-2 text-sm font-medium text-white transition group-hover:gap-3"
+              >
+                Ouvrir le dashboard
+                <svg
+                  xmlns="http://www.w3.org/2000/svg"
+                  fill="none"
+                  viewBox="0 0 24 24"
+                  stroke-width="2"
+                  stroke="currentColor"
+                  class="size-4"
+                >
+                  <path
+                    stroke-linecap="round"
+                    stroke-linejoin="round"
+                    d="M13.5 4.5 21 12m0 0-7.5 7.5M21 12H3"
+                  />
+                </svg>
+              </span>
+            </div>
+          </a>
+
+          <!-- Liens secondaires du projet -->
+          <div class="mt-6 grid gap-4 sm:grid-cols-2">
+            <a
+              href="https://github.com/thomasdlr/panorama_idf"
+              class="group flex items-start justify-between gap-4 rounded-xl bg-white p-5 ring-1 ring-neutral-200 transition hover:ring-neutral-300"
+            >
+              <div>
+                <p class="text-sm font-semibold text-neutral-900">
+                  Code source
+                </p>
+                <p class="mt-1 text-sm text-neutral-600">
+                  Pipeline, modèles dbt et config Metabase.
+                </p>
+              </div>
+              <svg class="size-5 shrink-0 text-neutral-400 transition group-hover:text-neutral-700" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true">
+                <path fill-rule="evenodd" d="M12 2C6.477 2 2 6.484 2 12.017c0 4.425 2.865 8.18 6.839 9.504.5.092.682-.217.682-.483 0-.237-.008-.868-.013-1.703-2.782.605-3.369-1.343-3.369-1.343-.454-1.158-1.11-1.466-1.11-1.466-.908-.62.069-.608.069-.608 1.003.07 1.531 1.032 1.531 1.032.892 1.53 2.341 1.088 2.91.832.092-.647.35-1.088.636-1.338-2.22-.253-4.555-1.113-4.555-4.951 0-1.093.39-1.988 1.029-2.688-.103-.253-.446-1.272.098-2.65 0 0 .84-.27 2.75 1.026A9.564 9.564 0 0 1 12 6.844c.85.004 1.705.115 2.504.337 1.909-1.296 2.747-1.027 2.747-1.027.546 1.379.202 2.398.1 2.651.64.7 1.028 1.595 1.028 2.688 0 3.848-2.339 4.695-4.566 4.943.359.309.678.92.678 1.855 0 1.338-.012 2.419-.012 2.747 0 .268.18.58.688.482A10.02 10.02 0 0 0 22 12.017C22 6.484 17.522 2 12 2Z" clip-rule="evenodd"/>
+              </svg>
+            </a>
+
+            <a
+              href="https://github.com/thomasdlr/panorama_idf/blob/main/README.md"
+              class="group flex items-start justify-between gap-4 rounded-xl bg-white p-5 ring-1 ring-neutral-200 transition hover:ring-neutral-300"
+            >
+              <div>
+                <p class="text-sm font-semibold text-neutral-900">
+                  Méthodologie &amp; sources
+                </p>
+                <p class="mt-1 text-sm text-neutral-600">
+                  Comment les indicateurs sont construits et d'où viennent les
+                  données.
+                </p>
+              </div>
+              <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke-width="1.8" stroke="currentColor" class="size-5 shrink-0 text-neutral-400 transition group-hover:text-neutral-700" aria-hidden="true">
+                <path stroke-linecap="round" stroke-linejoin="round" d="M12 6.042A8.967 8.967 0 0 0 6 3.75c-1.052 0-2.062.18-3 .512v14.25A8.987 8.987 0 0 1 6 18c2.305 0 4.408.867 6 2.292m0-14.25a8.966 8.966 0 0 1 6-2.292c1.052 0 2.062.18 3 .512v14.25A8.987 8.987 0 0 0 18 18a8.967 8.967 0 0 0-6 2.292m0-14.25v14.25" />
+              </svg>
+            </a>
+          </div>
+        </section>
+
+        <!-- Plus à venir -->
+        <section class="mb-20 rounded-2xl border border-dashed border-neutral-300 bg-white/50 p-8 text-center">
+          <p class="text-sm font-semibold uppercase tracking-widest text-neutral-500">
+            D'autres projets à venir
+          </p>
+          <p class="mx-auto mt-3 max-w-xl text-sm text-neutral-600">
+            Les prochains projets viendront se poser ici — en attendant,
+            LinkedIn et GitHub donnent une vue plus complète.
+          </p>
+        </section>
+
+        <!-- Footer -->
+        <footer class="flex flex-col items-center justify-between gap-4 border-t border-neutral-200 pt-8 text-sm text-neutral-500 sm:flex-row">
+          <p>© Thomas de Lard · Paris</p>
+          <div class="flex items-center gap-5">
+            <a
+              href="https://www.linkedin.com/in/thomas-de-lard/"
+              class="transition hover:text-neutral-900"
+            >
+              LinkedIn
+            </a>
+            <a
+              href="https://github.com/thomasdlr"
+              class="transition hover:text-neutral-900"
+            >
+              GitHub
+            </a>
+          </div>
+        </footer>
+      </div>
+    </div>
+  </body>
+</html>
