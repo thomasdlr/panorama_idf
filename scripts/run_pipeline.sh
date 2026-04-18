@@ -12,6 +12,7 @@ uv run ingest "$@"
 
 echo "═══ [2/3] dbt build ═══"
 cd dbt
+uv run dbt deps --profiles-dir .
 uv run dbt seed --profiles-dir .
 uv run dbt build --profiles-dir .
 cd ..
