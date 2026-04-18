@@ -53,12 +53,6 @@ services:
       MB_DB_HOST: postgres
       MB_SITE_URL: ${METABASE_SITE_URL:-http://localhost:3000}
       MB_ENABLE_PUBLIC_SHARING: "true"
-    labels:
-      - "traefik.enable=true"
-      - "traefik.http.routers.metabase.rule=Host(`metabase.tdelard.me`)"
-      - "traefik.http.routers.metabase.entrypoints=websecure"
-      - "traefik.http.routers.metabase.tls.certresolver=letsencrypt"
-      - "traefik.http.services.metabase.loadbalancer.server.port=3000"
     healthcheck:
       test: ["CMD-SHELL", "curl -f http://localhost:3000/api/health || exit 1"]
       interval: 10s
@@ -83,12 +77,6 @@ services:
     environment:
       UMAMI_WEBSITE_ID: ${UMAMI_WEBSITE_ID:-}
       DASHBOARD_URL: ${DASHBOARD_URL:-http://localhost:3000/dashboard/2}
-    labels:
-      - "traefik.enable=true"
-      - "traefik.http.routers.landing.rule=Host(`tdelard.me`) || Host(`www.tdelard.me`)"
-      - "traefik.http.routers.landing.entrypoints=websecure"
-      - "traefik.http.routers.landing.tls.certresolver=letsencrypt"
-      - "traefik.http.services.landing.loadbalancer.server.port=80"
     restart: unless-stopped
 
   admin:
@@ -99,12 +87,6 @@ services:
     environment:
       ADMIN_USER: ${ADMIN_USER:-admin}
       ADMIN_PASSWORD: ${ADMIN_PASSWORD:-dev-change-me}
-    labels:
-      - "traefik.enable=true"
-      - "traefik.http.routers.admin.rule=Host(`admin.tdelard.me`)"
-      - "traefik.http.routers.admin.entrypoints=websecure"
-      - "traefik.http.routers.admin.tls.certresolver=letsencrypt"
-      - "traefik.http.services.admin.loadbalancer.server.port=80"
     restart: unless-stopped
 
   pipeline:
