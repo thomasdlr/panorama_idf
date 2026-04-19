@@ -62,16 +62,19 @@ PG_CONN = os.environ.get(
 # postgres et metabase tournent déjà, on se connecte directement en TCP.
 COMPOSE_FILE = os.environ.get("COMPOSE_FILE", "docker-compose.yml")
 SKIP_COMPOSE_START = os.environ.get("SKIP_COMPOSE_START", "0") == "1"
+IS_LOCAL_METABASE_URL = METABASE_URL.startswith(
+    ("http://localhost", "https://localhost", "http://127.0.0.1", "https://127.0.0.1")
+)
 
 _geojson_base_url = os.environ.get("GEOJSON_BASE_URL")
 if not _geojson_base_url:
     _domain = os.environ.get("DOMAIN", "").strip()
     if _domain:
         _geojson_base_url = f"https://{_domain}/geojson"
-    elif COMPOSE_FILE == "docker-compose.yml":
-        _geojson_base_url = "http://geojson:80"
     else:
-        _geojson_base_url = f"{METABASE_URL.rstrip('/')}/geojson"
+        # Metabase charge les GeoJSON cote serveur. Sans domaine public explicite,
+        # il faut donc utiliser le service Docker interne plutot que localhost.
+        _geojson_base_url = "http://geojson:80"
 GEOJSON_BASE_URL = _geojson_base_url.rstrip("/")
 
 MART_TABLES = [
@@ -79,23 +82,23 @@ MART_TABLES = [
     "main_marts.mart_immo__synthese_zone",
     "main_marts.mart_immo__evolution_prix",
     ("main_staging.stg_logement__delinquance_detail", "stg_delinquance_detail"),
-    (
-        """SELECT code_commune, nom_commune,
-    cast(nb_pieces as integer) as nb_pieces, cast(annee as integer) as annee,
-    count(*) as nb_ventes,
-    round(median(valeur_fonciere)) as prix_median,
-    round(median(valeur_fonciere / nullif(surface_bati, 0))) as prix_m2_median,
-    round(median(surface_bati), 1) as surface_mediane
-FROM main_staging.stg_dvf__mutations_idf
-WHERE type_local = 'Appartement' AND nb_pieces IN (1, 2, 3)
-  AND valeur_fonciere > 10000 AND code_commune LIKE '751%'
-GROUP BY code_commune, nom_commune, nb_pieces, annee
-HAVING count(*) >= 5""",
-        "prix_paris_par_pieces",
-    ),
 ]
 
 LATEST_YEAR = 2025
+PARIS_IRIS_WINDOW_YEARS = 5
+PARIS_IRIS_START_YEAR = LATEST_YEAR - PARIS_IRIS_WINDOW_YEARS + 1
+PARIS_IRIS_PERIOD_LABEL = f"{PARIS_IRIS_START_YEAR}-{LATEST_YEAR}"
+PARIS_IRIS_MIN_SALES = 5
+PARIS_IRIS_PRIX_M2_MIN = 2000
+PARIS_IRIS_PRIX_M2_MAX = 40000
+PARIS_IRIS_WFS_URL = (
+    "https://data.geopf.fr/wfs/ows"
+    "?SERVICE=WFS&VERSION=2.0.0&REQUEST=GetFeature"
+    "&TYPENAMES=STATISTICALUNITS.IRIS.PE:contours_iris_pe"
+    "&OUTPUTFORMAT=application/json"
+    "&COUNT=1000"
+    "&CQL_FILTER=code_insee%20LIKE%20%27751%25%27"
+)
 
 
 # ── Infrastructure ──────────────────────────────────────────────────
@@ -166,7 +169,8 @@ def start_services() -> None:
         _ensure_metabase_app_db()
         return
 
-    subprocess.run(_compose_cmd("up", "-d"), cwd=PROJECT_ROOT, check=True)
+    services = ["postgres", "metabase", "geojson", "landing", "admin", "caddy"]
+    subprocess.run(_compose_cmd("up", "-d", *services), cwd=PROJECT_ROOT, check=True)
     print("  Attente de PostgreSQL…", end="", flush=True)
     for _ in range(30):
         result = subprocess.run(
@@ -219,6 +223,36 @@ def ensure_geojson_nginx_config() -> None:
     )
 
 
+def sync_geojson_to_local_volume() -> None:
+    """Sync host-generated GeoJSON files into the Docker volume served by nginx."""
+    if not IS_LOCAL_METABASE_URL:
+        return
+
+    compose_project = os.environ.get("COMPOSE_PROJECT_NAME", PROJECT_ROOT.name)
+    panorama_volume = f"{compose_project}_panorama-data"
+    geojson_files = sorted(str(path.name) for path in GEOJSON_DIR.glob("*.geojson"))
+    if not geojson_files:
+        raise RuntimeError("Aucun fichier GeoJSON à synchroniser.")
+
+    subprocess.run(
+        [
+            "docker",
+            "run",
+            "--rm",
+            "-v",
+            f"{panorama_volume}:/dest",
+            "-v",
+            f"{GEOJSON_DIR}:/src:ro",
+            "postgres:16-alpine",
+            "sh",
+            "-lc",
+            "mkdir -p /dest/metabase && cp -f /src/*.geojson /dest/metabase/",
+        ],
+        check=True,
+    )
+    print(f"  GeoJSON synchronisés vers le volume Docker ({len(geojson_files)} fichiers)")
+
+
 def export_marts_to_postgres() -> None:
     """Export mart tables from DuckDB to PostgreSQL."""
     con = duckdb.connect(str(MAIN_DB_PATH))
@@ -239,6 +273,68 @@ def export_marts_to_postgres() -> None:
             )
         rows = con.execute(f"SELECT count(*) FROM pg.public.{short_name}").fetchone()[0]
         print(f"  {short_name} — {rows:,} lignes")
+
+    con.execute("DETACH pg")
+    con.close()
+
+
+def export_paris_iris_to_postgres() -> None:
+    """Compute Paris IRIS-level price table for Metabase."""
+    con = duckdb.connect(str(MAIN_DB_PATH))
+    con.execute("INSTALL spatial; LOAD spatial;")
+    con.execute("INSTALL postgres; LOAD postgres;")
+    con.execute(f"ATTACH '{PG_CONN}' AS pg (TYPE POSTGRES)")
+
+    geojson_path = str(GEOJSON_DIR / "paris_iris.geojson")
+
+    con.execute("DROP TABLE IF EXISTS pg.public.paris_iris_prix")
+    con.execute(
+        f"""
+        CREATE TABLE pg.public.paris_iris_prix AS
+        WITH iris AS (
+            SELECT
+                code,
+                nom,
+                code_commune,
+                nom_commune,
+                geom
+            FROM ST_Read('{geojson_path}')
+        ),
+        ventes AS (
+            SELECT
+                valeur_fonciere / nullif(surface_bati, 0) AS prix_m2,
+                longitude,
+                latitude
+            FROM main_staging.stg_dvf__mutations_idf
+            WHERE code_commune LIKE '751%'
+              AND type_local = 'Appartement'
+              AND valeur_fonciere > 10000
+              AND surface_bati > 0
+              AND longitude IS NOT NULL
+              AND latitude IS NOT NULL
+              AND annee BETWEEN {PARIS_IRIS_START_YEAR} AND {LATEST_YEAR}
+              AND valeur_fonciere / nullif(surface_bati, 0)
+                  BETWEEN {PARIS_IRIS_PRIX_M2_MIN} AND {PARIS_IRIS_PRIX_M2_MAX}
+        )
+        SELECT
+            i.code AS code_iris,
+            i.nom AS nom_iris,
+            i.code_commune,
+            i.nom_commune,
+            '{PARIS_IRIS_PERIOD_LABEL}' AS periode_prix,
+            count(*)::integer AS nb_ventes,
+            round(median(v.prix_m2)) AS prix_m2_median
+        FROM ventes v
+        JOIN iris i ON ST_Contains(i.geom, ST_Point(v.longitude, v.latitude))
+        GROUP BY i.code, i.nom, i.code_commune, i.nom_commune
+        HAVING count(*) >= {PARIS_IRIS_MIN_SALES}
+        ORDER BY i.code
+    """
+    )
+    prix_rows = con.execute(
+        "SELECT count(*) FROM pg.public.paris_iris_prix"
+    ).fetchone()[0]
+    print(f"  paris_iris_prix — {prix_rows:,} lignes")
 
     con.execute("DETACH pg")
     con.close()
@@ -582,6 +678,7 @@ def generate_geojson() -> None:
         "idf_communes.geojson",
         "idf_departements.geojson",
         "paris_arrondissements.geojson",
+        "paris_iris.geojson",
         "petite_couronne.geojson",
         "petite_couronne_plus_paris.geojson",
         "grande_couronne.geojson",
@@ -629,6 +726,27 @@ def generate_geojson() -> None:
                 if f["properties"]["code"][:2] in ("77", "78", "91", "95")
             ],
         )
+
+    def write_paris_iris():
+        iris_path = GEOJSON_DIR / "paris_iris.geojson"
+        if iris_path.exists():
+            return
+        r = httpx.get(PARIS_IRIS_WFS_URL, timeout=60)
+        r.raise_for_status()
+        iris = r.json()
+        features = iris["features"]
+        for feat in features:
+            feat["geometry"]["coordinates"] = simplify_coords(
+                feat["geometry"]["coordinates"], precision=5
+            )
+            props = feat["properties"]
+            feat["properties"] = {
+                "code": props["code_iris"],
+                "nom": props["nom_iris"],
+                "code_commune": props["code_insee"],
+                "nom_commune": props["nom_commune"],
+            }
+        write_geo("paris_iris", features)
 
     def simplify_coords(coords, precision=4):
         if isinstance(coords[0], (int, float)):
@@ -689,6 +807,7 @@ def generate_geojson() -> None:
         features = json.loads(idf_path.read_text(encoding="utf-8"))["features"]
         write_zone_files(features)
         write_departements()
+        write_paris_iris()
         return
 
     # Download IDF communes + Paris arrondissements
@@ -716,6 +835,7 @@ def generate_geojson() -> None:
 
     write_zone_files(features)
     write_departements()
+    write_paris_iris()
 
 
 def wait_for_metabase(client: httpx.Client, timeout: int = 180) -> None:
@@ -797,6 +917,17 @@ def add_postgres_database(client: httpx.Client) -> int:
     """Add PostgreSQL database connection to Metabase (or rename legacy entry)."""
     target_name = "Panorama Île-de-France"
     legacy_names = {"France Aujourd'hui", "Panorama Ile-de-France"}  # migration douce
+    details = {
+        "host": "postgres",
+        "port": 5432,
+        "dbname": _pg_db,
+        "user": _pg_user,
+        "password": _pg_password,
+        # Postgres local/Dokploy n'expose pas SSL ; l'omettre laisse Metabase
+        # tenter une connexion SSL sur certaines versions.
+        "ssl": False,
+        "ssl-mode": "disable",
+    }
 
     r = client.get("/api/database")
     dbs = r.json().get("data", [])
@@ -804,11 +935,26 @@ def add_postgres_database(client: httpx.Client) -> int:
         name = db.get("name")
         if name == target_name:
             print(f"  Base déjà configurée (id={db['id']})")
+            client.put(
+                f"/api/database/{db['id']}",
+                json={
+                    "name": target_name,
+                    "engine": "postgres",
+                    "details": details,
+                },
+            )
             client.post(f"/api/database/{db['id']}/sync_schema")
             return db["id"]
         if name in legacy_names:
             print(f"  Renommage base legacy '{name}' → '{target_name}' (id={db['id']})")
-            client.put(f"/api/database/{db['id']}", json={"name": target_name})
+            client.put(
+                f"/api/database/{db['id']}",
+                json={
+                    "name": target_name,
+                    "engine": "postgres",
+                    "details": details,
+                },
+            )
             client.post(f"/api/database/{db['id']}/sync_schema")
             return db["id"]
 
@@ -819,13 +965,7 @@ def add_postgres_database(client: httpx.Client) -> int:
         json={
             "name": target_name,
             "engine": "postgres",
-            "details": {
-                "host": "postgres",
-                "port": 5432,
-                "dbname": _pg_db,
-                "user": _pg_user,
-                "password": _pg_password,
-            },
+            "details": details,
         },
     )
     r.raise_for_status()
@@ -852,6 +992,7 @@ def register_geojson_maps(client: httpx.Client) -> None:
         ("idf_communes", "Communes Île-de-France"),
         ("idf_departements", "Départements Île-de-France"),
         ("paris_arr", "Arrondissements Paris"),
+        ("paris_iris", "IRIS Paris"),
         ("petite_couronne", "Communes Petite couronne"),
         ("petite_couronne_plus_paris", "Petite couronne + Paris"),
         ("grande_couronne", "Communes Grande couronne"),
@@ -1365,15 +1506,32 @@ GROUP BY a.code_departement ORDER BY a.code_departement""",
     )
 
     # ── Paris tab cards ──
-    c_paris_map_prix = make_card(
+    c_paris_map_prix_arr = make_card(
         client,
         db_id,
-        "Prix au m² — Paris",
+        f"Prix au m² — Paris (arrondissements, {Y})",
         "map",
-        f"""SELECT code_commune AS "Code commune", round(prix_m2_median::numeric) AS "Prix au m² (€)"
+        f"""SELECT code_commune AS "Code commune",
+       nb_ventes AS "Ventes {Y}",
+       round(prix_m2_median::numeric) AS "Prix au m² (€)"
 FROM mart_immo__accessibilite_commune WHERE annee = {Y} AND code_commune LIKE '751%'""",
         f"Prix médian au m² par arrondissement. Source : DVF {Y} (Cerema).",
         map_viz("paris_arr", "Prix au m² (€)"),
+    )
+
+    c_paris_map_prix_iris = make_card(
+        client,
+        db_id,
+        f"Prix au m² — Paris (IRIS, {PARIS_IRIS_PERIOD_LABEL})",
+        "map",
+        f"""SELECT code_iris AS "Code IRIS",
+       nom_commune AS "Arrondissement",
+       nb_ventes AS "Ventes retenues ({PARIS_IRIS_PERIOD_LABEL})",
+       round(prix_m2_median::numeric) AS "Prix au m² (€)"
+FROM paris_iris_prix
+ORDER BY "Prix au m² (€)" DESC""",
+        f"Prix médian au m² par IRIS sur {PARIS_IRIS_PERIOD_LABEL}, après exclusion des ventes aberrantes (< {PARIS_IRIS_PRIX_M2_MIN:,} €/m² ou > {PARIS_IRIS_PRIX_M2_MAX:,} €/m²) et avec au moins {PARIS_IRIS_MIN_SALES} ventes retenues. Source : DVF {PARIS_IRIS_PERIOD_LABEL} (Cerema).",
+        map_viz("paris_iris", "Prix au m² (€)", dimension="Code IRIS"),
     )
 
     c_paris_map_age = make_card(
@@ -1439,34 +1597,17 @@ WHERE annee = {Y} AND code_commune LIKE '751%' ORDER BY surface_mediane DESC""",
         },
     )
 
-    c_paris_map_loyer_studio = make_card(
+    c_paris_map_loyer_arr = make_card(
         client,
         db_id,
-        "Loyer estimé studio — Paris",
+        f"Loyer au m² — Paris (arrondissements, {Y})",
         "map",
-        f"""SELECT a.code_commune AS "Code commune",
-       round((a.loyer_m2_median * p.surface_mediane)::numeric) AS "Loyer mensuel (€)"
-FROM mart_immo__accessibilite_commune a
-JOIN prix_paris_par_pieces p
-    ON a.code_commune = p.code_commune AND a.annee = p.annee
-WHERE a.annee = {Y} AND p.nb_pieces = 1 AND a.loyer_m2_median IS NOT NULL""",
-        f"Loyer m² ANIL 2025 × surface médiane studio DVF {Y}.",
-        map_viz("paris_arr", "Loyer mensuel (€)"),
-    )
-
-    c_paris_map_loyer_2p = make_card(
-        client,
-        db_id,
-        "Loyer estimé 2 pièces — Paris",
-        "map",
-        f"""SELECT a.code_commune AS "Code commune",
-       round((a.loyer_m2_median * p.surface_mediane)::numeric) AS "Loyer mensuel (€)"
-FROM mart_immo__accessibilite_commune a
-JOIN prix_paris_par_pieces p
-    ON a.code_commune = p.code_commune AND a.annee = p.annee
-WHERE a.annee = {Y} AND p.nb_pieces = 2 AND a.loyer_m2_median IS NOT NULL""",
-        f"Loyer m² ANIL 2025 × surface médiane 2P DVF {Y}.",
-        map_viz("paris_arr", "Loyer mensuel (€)"),
+        f"""SELECT code_commune AS "Code commune",
+       round(loyer_m2_median::numeric, 1) AS "Loyer au m² (€)"
+FROM mart_immo__accessibilite_commune
+WHERE annee = {Y} AND code_commune LIKE '751%' AND loyer_m2_median IS NOT NULL""",
+        "Loyer prédit au m² (appartements), par arrondissement. Source : Carte des loyers 2025 (ANIL).",
+        map_viz("paris_arr", "Loyer au m² (€)", colors=CLR_ALT),
     )
 
     c_paris_map_delin = make_card(
@@ -1879,9 +2020,9 @@ ORDER BY prix_m2_median""",
                 _txt(T1, 134, 0, 24, 5, FEEDBACK_TEXT),
                 # ═══ Paris ═══
                 _head(T2, 0, "Logement"),
-                _card(c_paris_map_prix, T2, 2, 0, 24, 12),
-                _card(c_paris_map_loyer_studio, T2, 14, 0, 12, 10),
-                _card(c_paris_map_loyer_2p, T2, 14, 12, 12, 10),
+                _card(c_paris_map_prix_arr, T2, 2, 0, 12, 10),
+                _card(c_paris_map_loyer_arr, T2, 2, 12, 12, 10),
+                _card(c_paris_map_prix_iris, T2, 12, 0, 24, 12),
                 _card(c_paris_evol, T2, 24, 0, 24, 9),
                 _card(c_paris_table, T2, 33, 0, 24, 8),
                 _card(c_paris_surface, T2, 41, 0, 24, 8),
@@ -1933,7 +2074,7 @@ ORDER BY prix_m2_median""",
         },
     )
     r.raise_for_status()
-    print("  3 onglets, 45 cartes, 11 sections")
+    print("  3 onglets, 46 cartes, 11 sections")
     return dash_id
 
 
@@ -1945,21 +2086,25 @@ def main() -> None:
 
     ensure_geojson_nginx_config()
 
-    print("[1/10] Démarrage PostgreSQL + Metabase")
+    print("[1/11] Démarrage PostgreSQL + Metabase")
     start_services()
 
-    print("\n[2/10] Export des marts vers PostgreSQL")
+    print("\n[2/11] Export des marts vers PostgreSQL")
     export_marts_to_postgres()
 
-    print("\n[3/10] Génération GeoJSON")
+    print("\n[3/11] Génération GeoJSON")
     generate_geojson()
+    sync_geojson_to_local_volume()
+
+    print("\n[4/11] Données IRIS Paris")
+    export_paris_iris_to_postgres()
 
     # Exports externes (APIs tierces) : non-bloquants car les APIs peuvent
     # refuser les IPs de datacenter ou etre temporairement indisponibles.
     for step, label, fn in [
-        ("4/10", "Pistes cyclables", export_cycling_to_postgres),
-        ("5/10", "Stations métro et RER (IDFM)", export_metro_to_postgres),
-        ("6/10", "Données diplômes INSEE", export_diplomes_to_postgres),
+        ("5/11", "Pistes cyclables", export_cycling_to_postgres),
+        ("6/11", "Stations métro et RER (IDFM)", export_metro_to_postgres),
+        ("7/11", "Données diplômes INSEE", export_diplomes_to_postgres),
     ]:
         print(f"\n[{step}] {label}")
         try:
@@ -1970,10 +2115,10 @@ def main() -> None:
 
     client = httpx.Client(base_url=METABASE_URL, timeout=30)
 
-    print("\n[7/10] Connexion à Metabase")
+    print("\n[8/11] Connexion à Metabase")
     wait_for_metabase(client)
 
-    print("\n[8/10] Configuration admin")
+    print("\n[9/11] Configuration admin")
     session_id = setup_admin(client)
     client.headers["X-Metabase-Session"] = session_id
 
@@ -1984,10 +2129,10 @@ def main() -> None:
     except Exception:
         pass
 
-    print("\n[9/10] Base de données PostgreSQL")
+    print("\n[10/11] Base de données PostgreSQL")
     db_id = add_postgres_database(client)
 
-    print("\n[10/10] Cartes GeoJSON + dashboard")
+    print("\n[11/11] Cartes GeoJSON + dashboard")
     register_geojson_maps(client)
     dash_id = create_tabbed_dashboard(client, db_id)
 

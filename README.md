@@ -2,7 +2,7 @@
 
 Analyse du **cadre de vie en Île-de-France** à partir d'open data publics français : immobilier, revenus, démographie, délinquance, éducation et mobilité.
 
-Le livrable est un dashboard Metabase **Panorama Ile-de-France** avec 3 onglets (Ile-de-France, Paris, Petite couronne) et 45 cartes (choroplèthes communales, séries temporelles, classements).
+Le livrable est un dashboard Metabase **Panorama Ile-de-France** avec 3 onglets (Ile-de-France, Paris, Petite couronne) et 46 cartes (choroplèthes communales et infra-parisiennes, séries temporelles, classements).
 
 ## Objectif
 

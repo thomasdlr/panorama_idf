@@ -40,7 +40,7 @@ services:
     restart: unless-stopped
 
   metabase:
-    image: metabase/metabase:latest
+    image: ${METABASE_IMAGE:-metabase/metabase:v0.59.7.2}
     depends_on:
       postgres:
         condition: service_healthy
