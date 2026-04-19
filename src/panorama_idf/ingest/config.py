@@ -37,7 +37,9 @@ class DatasetConfig:
 # URL pattern: https://files.data.gouv.fr/geo-dvf/latest/csv/<année>/departements/
 # On télécharge chaque année séparément pour avoir l'historique complet.
 # ---------------------------------------------------------------------------
-DVF_ANNEES = ["2020", "2021", "2022", "2023", "2024", "2025"]
+# files.data.gouv.fr `latest/` ne garde plus 2020 (rotation). Si besoin
+# d'historique plus long, basculer sur une URL versionnée.
+DVF_ANNEES = ["2021", "2022", "2023", "2024", "2025"]
 
 DVF_PLUS_DATASETS = [
     DatasetConfig(
