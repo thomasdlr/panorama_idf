@@ -1950,12 +1950,19 @@ ORDER BY prix_m2_median""",
         dc["dashboard_tab_id"] = virt_to_real[dc["dashboard_tab_id"]]
         remapped_dashcards.append(dc)
 
+    # Base URL pour la nav inter-onglets :
+    # - si DASHBOARD_URL env est set (lien public Metabase), on l'utilise →
+    #   les liens sont absolus, forcent un reload, fonctionnent sur le public.
+    # - sinon, fallback vers /dashboard/{id} (vue admin).
+    # URL relative ne marche pas sur public dashboard (React Router
+    # n'intercepte pas le changement de query param).
+    _dashboard_url = os.environ.get("DASHBOARD_URL", "").strip().rstrip("/")
+    _nav_base = _dashboard_url or f"{METABASE_URL.rstrip('/')}/dashboard/{dash_id}"
+
     def _nav_md(current: str) -> str:
         ordered = ["Paris", "Petite couronne", "Île-de-France"]
         parts = [
-            # URL relative : résolue contre la page courante, donc
-            # marche aussi bien depuis /dashboard/ que /public/dashboard/.
-            f"[→ {name}](?tab={tab_id_by_name[name]})"
+            f"[→ {name}]({_nav_base}?tab={tab_id_by_name[name]})"
             for name in ordered
             if name != current
         ]
