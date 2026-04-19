@@ -1953,7 +1953,9 @@ ORDER BY prix_m2_median""",
     def _nav_md(current: str) -> str:
         ordered = ["Paris", "Petite couronne", "Île-de-France"]
         parts = [
-            f"[→ {name}](/dashboard/{dash_id}?tab={tab_id_by_name[name]})"
+            # URL relative : résolue contre la page courante, donc
+            # marche aussi bien depuis /dashboard/ que /public/dashboard/.
+            f"[→ {name}](?tab={tab_id_by_name[name]})"
             for name in ordered
             if name != current
         ]
