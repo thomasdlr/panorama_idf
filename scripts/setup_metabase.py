@@ -1933,66 +1933,7 @@ ORDER BY prix_m2_median""",
         },
     )
     r.raise_for_status()
-
-    # Seconde passe : remplace les IDs virtuels (T1/T2/T3) par ceux attribués
-    # par Metabase au PUT, puis ajoute une barre de navigation en bas de
-    # chaque onglet pointant vers les deux autres.
-    real_dash = client.get(f"/api/dashboard/{dash_id}").json()
-    tab_id_by_name = {t["name"]: t["id"] for t in real_dash.get("tabs", [])}
-    real_T2 = tab_id_by_name["Paris"]
-    real_T3 = tab_id_by_name["Petite couronne"]
-    real_T1 = tab_id_by_name["Île-de-France"]
-    virt_to_real = {T1: real_T1, T2: real_T2, T3: real_T3}
-
-    remapped_dashcards = []
-    for dc in dashcards:
-        dc = dict(dc)
-        dc["dashboard_tab_id"] = virt_to_real[dc["dashboard_tab_id"]]
-        remapped_dashcards.append(dc)
-
-    # Base URL pour la nav inter-onglets :
-    # - si DASHBOARD_URL env est set (lien public Metabase), on l'utilise →
-    #   les liens sont absolus, forcent un reload, fonctionnent sur le public.
-    # - sinon, fallback vers /dashboard/{id} (vue admin).
-    # URL relative ne marche pas sur public dashboard (React Router
-    # n'intercepte pas le changement de query param).
-    _dashboard_url = os.environ.get("DASHBOARD_URL", "").strip().rstrip("/")
-    _nav_base = _dashboard_url or f"{METABASE_URL.rstrip('/')}/dashboard/{dash_id}"
-
-    def _nav_md(current: str) -> str:
-        ordered = ["Paris", "Petite couronne", "Île-de-France"]
-        parts = [
-            f"[→ {name}]({_nav_base}?tab={tab_id_by_name[name]})"
-            for name in ordered
-            if name != current
-        ]
-        return "**Autres onglets :**   " + "   ·   ".join(parts)
-
-    # Nav placée juste au-dessus du bloc Sources / formulaire de retour.
-    nav_cards = [
-        _txt(real_T2, 140, 0, 24, 2, _nav_md("Paris")),
-        _txt(real_T3, 120, 0, 24, 2, _nav_md("Petite couronne")),
-        _txt(real_T1, 129, 0, 24, 2, _nav_md("Île-de-France")),
-    ]
-
-    tabs_spec_real = [
-        {"id": real_T2, "name": "Paris"},
-        {"id": real_T3, "name": "Petite couronne"},
-        {"id": real_T1, "name": "Île-de-France"},
-    ]
-
-    r = client.put(
-        f"/api/dashboard/{dash_id}",
-        json={
-            "name": "Panorama Île-de-France",
-            "description": "Immobilier, revenus, loyers, démographie et sécurité par commune (2020–2025).",
-            "tabs": tabs_spec_real,
-            "parameters": [PC_INCLUDE_PARIS_PARAMETER],
-            "dashcards": remapped_dashcards + nav_cards,
-        },
-    )
-    r.raise_for_status()
-    print("  3 onglets, 45 cartes, 11 sections, nav inter-onglets")
+    print("  3 onglets, 45 cartes, 11 sections")
     return dash_id
 
 
