@@ -68,7 +68,10 @@ services:
     expose:
       - "80"
     volumes:
-      - ./data/metabase:/usr/share/nginx/html:ro
+      # Même volume Docker que pipeline : les GeoJSON écrits par
+      # setup_metabase.py sont immédiatement servis, sans dépendre du
+      # bind mount vers le repo cloné (qui est wipé à chaque redeploy).
+      - panorama-data:/srv/panorama-data:ro
     restart: unless-stopped
 
   landing:
@@ -110,9 +113,43 @@ services:
       METABASE_URL: http://metabase:3000
       MB_ADMIN_EMAIL: ${MB_ADMIN_EMAIL}
       MB_ADMIN_PASSWORD: ${MB_ADMIN_PASSWORD}
+      GEOJSON_BASE_URL: ${GEOJSON_BASE_URL:-http://geojson:80}
       SKIP_COMPOSE_START: "1"
     volumes:
-      - ./data:/app/data
+      # Volume Docker nommé : survit aux redeploys (le bind mount ./data
+      # était wipé à chaque fois que Dokploy re-cloner le repo).
+      - panorama-data:/app/data
+    restart: "no"
+
+  # Service one-shot qui tourne à chaque `docker compose up` (donc à chaque
+  # deploy Dokploy). Lance UNIQUEMENT setup_metabase.py pour appliquer les
+  # dernières modifs de dashboard (cartes, nav, libellés, SQL…). N'exécute
+  # PAS l'ingest ni dbt — à réserver au service `pipeline` (profil explicite).
+  # Idempotent : si les marts n'existent pas encore, le script échoue mais
+  # sans bloquer les autres services (restart: no).
+  metabase-setup:
+    build:
+      context: .
+      dockerfile: Dockerfile.pipeline
+    depends_on:
+      postgres:
+        condition: service_healthy
+      metabase:
+        condition: service_healthy
+    environment:
+      POSTGRES_HOST: postgres
+      POSTGRES_PORT: "5432"
+      POSTGRES_DB: ${POSTGRES_DB:-panorama_idf}
+      POSTGRES_USER: ${POSTGRES_USER:-metabase}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-metabase}
+      METABASE_URL: http://metabase:3000
+      MB_ADMIN_EMAIL: ${MB_ADMIN_EMAIL}
+      MB_ADMIN_PASSWORD: ${MB_ADMIN_PASSWORD}
+      GEOJSON_BASE_URL: ${GEOJSON_BASE_URL:-http://geojson:80}
+      SKIP_COMPOSE_START: "1"
+    volumes:
+      - panorama-data:/app/data
+    command: ["uv", "run", "python", "scripts/setup_metabase.py"]
     restart: "no"
 
   # Caddy = reverse proxy LOCAL uniquement (profil "local").
@@ -136,5 +173,6 @@ services:
 
 volumes:
   pg-data:
+  panorama-data:
   caddy-data:
   caddy-config:
